@@ -9,7 +9,7 @@ declare
   t text;
 begin
   foreach t in array array[
-    'vineyards', 'profiles', 'memberships', 'invites', 'invite_wages',
+    'vineyards', 'profiles', 'memberships', 'invites', 'invite_wages', 'manager_requests',
     'areas', 'blocks', 'tasks', 'passes', 'pass_tasks', 'chemicals',
     'labor_entries', 'row_progress', 'spray_logs', 'watering_logs', 'weed_logs',
     'harvest_samples', 'equipment', 'service_types', 'service_logs',
@@ -21,6 +21,9 @@ begin
     execute format('revoke all on public.%I from anon, public', t);
     execute format('grant select, insert, update, delete on public.%I to authenticated', t);
   end loop;
+  -- Clients can file a request and read the list. Approving writes through
+  -- public.decide_manager_request, which is the only path that sets role manager.
+  revoke update, delete on public.manager_requests from authenticated;
 end $$;
 
 -- Vineyard
@@ -61,10 +64,44 @@ create policy memberships_update on public.memberships
     or (select private.is_developer(vineyard_id))
   )
   with check (
-    role in ('employee', 'manager', 'developer')
+    (
+      role in ('employee', 'developer')
+      or role = (
+        select m.role from public.memberships m where m.id = memberships.id
+      )
+    )
     and (
       (select private.is_manager(vineyard_id))
       or (select private.is_developer(vineyard_id))
+    )
+  );
+
+-- Manager requests. Developer and manager can see them. Neither sees wages here.
+drop policy if exists manager_requests_select on public.manager_requests;
+create policy manager_requests_select on public.manager_requests
+  for select to authenticated
+  using (
+    (select private.is_developer(vineyard_id))
+    or (select private.is_manager(vineyard_id))
+  );
+
+drop policy if exists manager_requests_insert on public.manager_requests;
+create policy manager_requests_insert on public.manager_requests
+  for insert to authenticated
+  with check (
+    status = 'pending'
+    and requested_by = (select auth.uid())
+    and (
+      (select private.is_manager(vineyard_id))
+      or (select private.is_developer(vineyard_id))
+    )
+    and exists (
+      select 1
+      from public.memberships m
+      where m.vineyard_id = manager_requests.vineyard_id
+        and m.user_id = manager_requests.user_id
+        and m.active
+        and m.role = 'employee'
     )
   );
 

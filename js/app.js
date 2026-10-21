@@ -65,6 +65,7 @@ const KEY_BY_TABLE = {
   memberships: "members",
   profiles: "profiles",
   invites: "invites",
+  manager_requests: "managerRequests",
   wage_rates: "wages",
   bug_reports: "bugs",
   season_notes: "seasons",
@@ -77,7 +78,7 @@ function emptyData() {
     blocks: [], tasks: [], passes: [], passTasks: [], areas: [], chemicals: [],
     labor: [], rows: [], sprays: [], watering: [], weeds: [], samples: [],
     equipment: [], serviceTypes: [], serviceLogs: [], contractors: [], contractorCosts: [],
-    members: [], profiles: [], invites: [], wages: [], bugs: [], seasons: [],
+    members: [], profiles: [], invites: [], managerRequests: [], wages: [], bugs: [], seasons: [],
   };
 }
 
@@ -675,7 +676,7 @@ function parseHash() {
   const head = parts[0] || "home";
   if (head === "block" && parts[1]) return { route: "block", param: parts[1], editId: null };
   if (head === "task" && parts[2]) return { route: "task", param: `${parts[1]}/${parts[2]}`, editId: null };
-  const known = ["work", "finish", "export", "more", "hours", "manual", "crew", "passes", "setup", "contractors", "maintenance", "settings", "bug", "bugs"];
+  const known = ["work", "finish", "export", "more", "hours", "manual", "crew", "passes", "setup", "contractors", "maintenance", "settings", "bug", "bugs", "managers"];
   if (!parts.length) return { route: "home", param: "", editId: null };
   if (known.includes(head)) return { route: head, param: "", editId: head === "manual" ? query.get("edit") : null };
   return { route: "home", param: "", editId: null };
@@ -841,6 +842,7 @@ function onClick(event) {
     state.laborMode = el.dataset.id;
     paint();
   } else if (act === "set-role") setRole(el.dataset.id, el.dataset.role);
+  else if (act === "decide-manager") decideManager(el.dataset.id, el.dataset.approve === "yes");
   else if (act === "rename-task") renameTask(el.dataset.id);
   else if (act === "theme") {
     applyTheme(el.dataset.id);
@@ -1341,7 +1343,80 @@ function setRole(id, role) {
     paint();
     return;
   }
-  save("memberships", { ...row, role });
+  if (role === "employee") {
+    if (row.role !== "manager") return;
+    save("memberships", { ...row, role: "employee" });
+    state.notice = "They are an employee.";
+    return;
+  }
+  const pending = (state.data.managerRequests || []).some((r) => r.user_id === row.user_id && r.status === "pending" && r.vineyard_id === state.vineyard.id);
+  if (pending || row.role === "manager") {
+    state.notice = row.role === "manager" ? "They are already a manager." : "Aaron already has this request.";
+    paint();
+    return;
+  }
+  save("manager_requests", {
+    id: crypto.randomUUID(),
+    vineyard_id: state.vineyard.id,
+    user_id: row.user_id,
+    requested_by: state.userId,
+    status: "pending",
+    decided_at: null,
+    decided_by: null,
+  });
+  state.notice = "Request sent. They stay an employee until Aaron approves.";
+}
+
+function decideManager(id, approve) {
+  if (state.role !== "developer") return;
+  const req = (state.data.managerRequests || []).find((r) => r.id === id && r.status === "pending");
+  if (!req) return;
+  if (state.demo || !client) {
+    applyManagerDecision(req, approve);
+    return;
+  }
+  if (navigator.onLine === false) {
+    state.notice = "Approving a manager needs Wi-Fi.";
+    paint();
+    return;
+  }
+  client.rpc("decide_manager_request", { p_id: id, p_approve: approve }).then(({ error }) => {
+    if (error) {
+      state.notice = "That approval did not go through.";
+      pushError(error);
+      paint();
+      return;
+    }
+    applyManagerDecision(req, approve);
+    syncNow();
+  }).catch((error) => {
+    state.notice = "Approving a manager needs Wi-Fi.";
+    pushError(error);
+    paint();
+  });
+}
+
+function applyManagerDecision(req, approve) {
+  const now = new Date().toISOString();
+  const updated = {
+    ...req,
+    status: approve ? "approved" : "rejected",
+    decided_at: now,
+    decided_by: state.userId,
+    client_updated_at: now,
+  };
+  remember("manager_requests", updated);
+  let member = null;
+  if (approve) {
+    member = state.data.members.find((m) => m.user_id === req.user_id && m.vineyard_id === req.vineyard_id && m.role === "employee");
+    if (member) remember("memberships", { ...member, role: "manager", client_updated_at: now });
+  }
+  if (db && !state.demo) {
+    putRecord(db, "manager_requests", updated).catch(pushError);
+    if (member) putRecord(db, "memberships", { ...member, role: "manager", client_updated_at: now }).catch(pushError);
+  }
+  state.notice = approve ? "They are a manager." : "Request turned down. They stay an employee.";
+  paint();
 }
 
 function renameTask(id) {
@@ -1632,7 +1707,7 @@ function startDemo() {
   state.online = true;
   state.session = { user: { id: userId, email: "crew@da.test" } };
   state.userId = userId;
-  state.profile = { id: userId, display_name: role === "manager" ? "Morgan" : "Ada", theme: "sage" };
+  state.profile = { id: userId, display_name: role === "manager" ? "Morgan" : role === "developer" ? "Aaron" : "Ada", theme: "sage" };
   state.vineyard = {
     id: vineyardId,
     name: "DA Ranch",
@@ -1648,10 +1723,23 @@ function startDemo() {
   state.data.areas = [{ id: "33333333-3333-4333-8333-333333333333", name: "Non-field work", kind: "non_field", is_system: true, sort_order: 0 }];
   state.data.members = [{ id: "m1", user_id: userId, vineyard_id: vineyardId, role, active: true }];
   state.data.profiles = [state.profile];
-  if (role === "manager") {
+  if (role === "manager" || role === "developer") {
     state.data.members.push({ id: "m2", user_id: sam, vineyard_id: vineyardId, role: "employee", active: true });
     state.data.profiles.push({ id: sam, display_name: "Sam", theme: "sage" });
+  }
+  if (role === "manager") {
     state.data.wages = [{ id: "w1", user_id: sam, vineyard_id: vineyardId, hourly_rate: 18, effective_from: "2026-01-01" }];
+  }
+  if (role === "developer") {
+    state.data.managerRequests = [{
+      id: "77777777-7777-4777-8777-777777777777",
+      vineyard_id: vineyardId,
+      user_id: sam,
+      requested_by: userId,
+      status: "pending",
+      decided_at: null,
+      decided_by: null,
+    }];
   }
   applyRoute();
   paint();

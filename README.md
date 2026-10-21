@@ -47,11 +47,11 @@ A manager can also type a starting hourly wage. That wage is not visible to anyo
 
 **Employee.** Logs work, sees hours for each task, and can add a task name. They can fix their own entries for a few days (3 days unless a manager changes it). They never see wages or labor cost.
 
-**Manager.** Everything an employee can do, plus crew, wages, the end-of-day time, and labor cost. Cost is a total for a task or a pass. The app does not show what each person earned.
+**Manager.** Everything an employee can do, plus crew, wages, the end-of-day time, and labor cost. Cost is a total for a task or a pass. The app does not show what each person earned. A manager can ask for someone else to become a manager. Creating an account does not make anyone a manager. That person stays an employee until Aaron approves the request.
 
-**Developer (Aaron).** Can rename tasks, change the lists, add people, read problem reports, and log field work. This login cannot see wages or labor cost. The database blocks it, not just the screen.
+**Developer (Aaron).** Can rename tasks, change the lists, add people, read problem reports, and log field work. Under **More → Manager requests**, approve or turn down each manager request. Until you approve, that person stays an employee. This login cannot see wages or labor cost. The database blocks it, not just the screen.
 
-Make one crew lead a manager. That person sets wages and the 2:25 end-of-day time. Aaron’s developer login cannot do those two things.
+Aaron approves the first crew lead in the app. That manager then sets wages and the 2:25 end-of-day time. Aaron’s developer login cannot do those two things.
 
 ## On the phone
 
@@ -106,6 +106,8 @@ In the app, create an account with Aaron’s email. Then run `supabase/assign-de
 
 That file is not part of the five migrations, so a placeholder email never becomes a developer by accident.
 
+Then sign in as Aaron. Under **More → Manager requests**, approve the person who should set wages. A manager invite, or **Ask for manager** on the crew screen, only files that request. The person stays an employee until you approve it. Turning a request down leaves them an employee. You can still make a manager back into an employee without a second approval.
+
 ### 3. Auth settings
 
 In **Authentication**:
@@ -127,4 +129,4 @@ Deploy from the `main` branch, folder `/` (root). The address is `https://asweis
 
 ### 6. Another vineyard later
 
-The database can hold more than one vineyard, fully separated. `create_vineyard` exists for that. There is no button for it in the crew screens. DA Ranch is the one this app is set up for.
+The database can hold more than one vineyard, fully separated. `create_vineyard` exists for that. There is no button for it in the crew screens. DA Ranch is the one this app is set up for. The person who creates a new vineyard becomes its manager, because that vineyard has no developer yet. That does not make them a manager of DA Ranch.

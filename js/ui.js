@@ -356,6 +356,7 @@ function more(state) {
   if (lead) {
     items.splice(2, 0, ["#/crew", "Crew"], ["#/passes", "Combined passes"], ["#/setup", "Blocks, tasks, chemicals"], ["#/contractors", "Contractors"]);
   }
+  if (state.role === "developer") items.push(["#/managers", "Manager requests"]);
   if (state.role === "manager" || state.role === "developer") items.push(["#/bugs", "Problem reports"]);
   return shell(state, `
     <h2>More</h2>
@@ -438,24 +439,28 @@ function crewScreen(state) {
   const members = (state.data.members || []).filter((m) => m.active);
   return shell(state, `
     <h2>Crew</h2>
-    <p class="note">Add their email here. On their phone they tap Create account and use that same email. They pick a password once and stay signed in.</p>
+    <p class="note">Add their email here. On their phone they tap Create account and use that same email. They pick a password once and stay signed in. Asking for a manager does not make them one. They stay an employee until Aaron approves it.</p>
     <form class="form" id="invite-form">
       <input name="display_name" placeholder="Name" required />
       <input name="email" type="email" placeholder="Email" required />
-      <select name="role"><option value="employee">Employee</option><option value="manager">Manager</option></select>
+      <select name="role"><option value="employee">Employee</option><option value="manager">Manager, after Aaron approves</option></select>
       ${manager ? `<input name="wage" inputmode="decimal" placeholder="Hourly wage (optional)" />` : ""}
       <button class="big" type="submit">Add them</button>
     </form>
     <h2>Pending</h2>
-    <ul class="list">${(state.data.invites || []).filter((i) => !i.accepted_at && !i.deleted_at).map((i) => `<li><div><strong>${esc(i.display_name || i.email)}</strong><p class="meta">${esc(i.email)} · ${esc(i.role)}</p></div><button class="danger" type="button" data-act="ask-delete" data-table="invites" data-id="${i.id}">Remove</button></li>`).join("") || "<li><div>No one waiting.</div></li>"}</ul>
+    <ul class="list">${(state.data.invites || []).filter((i) => !i.accepted_at && !i.deleted_at).map((i) => `<li><div><strong>${esc(i.display_name || i.email)}</strong><p class="meta">${esc(i.email)} · ${i.role === "manager" ? "Manager, after Aaron approves" : "Employee"}</p></div><button class="danger" type="button" data-act="ask-delete" data-table="invites" data-id="${i.id}">Remove</button></li>`).join("") || "<li><div>No one waiting.</div></li>"}</ul>
     <h2>On the crew</h2>
-    ${members.map((m) => `<section class="panel"><strong>${esc(personName(state, m.user_id))}</strong><p class="meta">${esc(m.role)}</p>
-      ${m.role !== "developer" ? `<div class="pair">
-        <button class="ghost" type="button" data-act="set-role" data-id="${m.id}" data-role="employee">Employee</button>
-        <button class="ghost" type="button" data-act="set-role" data-id="${m.id}" data-role="manager">Manager</button>
-      </div>` : `<p class="muted">Developer is set from the setup SQL.</p>`}
+    ${members.map((m) => {
+      const pending = (state.data.managerRequests || []).some((r) => r.user_id === m.user_id && r.status === "pending");
+      return `<section class="panel"><strong>${esc(personName(state, m.user_id))}</strong><p class="meta">${esc(m.role)}</p>
+      ${m.role === "developer" ? `<p class="muted">Developer is set from the setup SQL.</p>` : `<div class="pair">
+        ${pending ? `<p class="meta">Waiting for Aaron. Still an employee.</p>` : ""}
+        ${m.role === "manager" ? `<button class="ghost" type="button" data-act="set-role" data-id="${m.id}" data-role="employee">Make employee</button>` : ""}
+        ${m.role === "employee" && !pending ? `<button class="ghost" type="button" data-act="set-role" data-id="${m.id}" data-role="manager">Ask for manager</button>` : ""}
+      </div>`}
       ${manager ? wageBox(state, m.user_id) : ""}
-    </section>`).join("")}
+    </section>`;
+    }).join("")}
   `);
 }
 
@@ -470,6 +475,23 @@ function wageBox(state, userId) {
     <button class="ghost" type="submit">Save wage</button>
     ${rates.slice(0, 4).map((w) => `<p class="small">${esc(w.effective_from)} · $${Number(w.hourly_rate).toFixed(2)}</p>`).join("")}
   </form>`;
+}
+
+function managersScreen(state) {
+  if (state.role !== "developer") return shell(state, `<p>Aaron approves managers.</p>`);
+  const pending = (state.data.managerRequests || []).filter((r) => r.status === "pending");
+  return shell(state, `
+    <h2>Manager requests</h2>
+    <p class="note">Nobody becomes a manager until you approve them here. Until then they stay an employee. Wages are not on this screen.</p>
+    ${pending.map((r) => `<section class="panel">
+      <strong>${esc(personName(state, r.user_id))}</strong>
+      <p class="meta">Asked by ${esc(personName(state, r.requested_by))}</p>
+      <div class="pair">
+        <button class="big" type="button" data-act="decide-manager" data-id="${r.id}" data-approve="yes">Approve</button>
+        <button class="danger" type="button" data-act="decide-manager" data-id="${r.id}" data-approve="no">Turn down</button>
+      </div>
+    </section>`).join("") || `<p>No one is waiting.</p>`}
+  `);
 }
 
 function passesScreen(state) {
@@ -645,6 +667,7 @@ export function renderApp(state) {
   if (route === "hours") return hoursScreen(state);
   if (route === "manual") return manualScreen(state);
   if (route === "crew") return crewScreen(state);
+  if (route === "managers") return managersScreen(state);
   if (route === "passes") return passesScreen(state);
   if (route === "setup") return setupScreen(state);
   if (route === "contractors") return contractorsScreen(state);

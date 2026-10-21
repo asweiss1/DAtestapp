@@ -3,8 +3,9 @@
 --
 -- Developer can rename and delete tasks, fix lists, add people, and read
 -- problem reports. Developer cannot read wages or labor cost.
--- Make a crew lead a manager (in the app, or with the second statement)
--- so someone can set wages and the end-of-day time.
+-- After this, open the app as Aaron and approve a crew lead under
+-- More → Manager requests. Until then that person stays an employee.
+-- Do not assign the manager role from this file.
 
 insert into public.memberships (vineyard_id, user_id, role)
 select v.id, u.id, 'developer'
@@ -15,12 +16,3 @@ on conflict (vineyard_id, user_id) do update
   set role = 'developer',
       active = true,
       client_updated_at = now();
-
--- Optional: promote a crew lead who already has an account.
--- insert into public.memberships (vineyard_id, user_id, role)
--- select v.id, u.id, 'manager'
--- from public.vineyards v
--- join auth.users u on lower(u.email) = lower('crew-lead@example.com')
--- where v.name = 'DA Ranch'
--- on conflict (vineyard_id, user_id) do update
---   set role = 'manager', active = true, client_updated_at = now();

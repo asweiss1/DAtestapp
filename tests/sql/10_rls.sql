@@ -150,6 +150,12 @@ set local role authenticated;
 select public.create_vineyard('Other Ranch');
 select 1 / case when (select count(*) from public.blocks) = 0 then 1 else 0 end;
 select 1 / case when (select count(*) from public.vineyards where name = 'DA Ranch') = 0 then 1 else 0 end;
+select 1 / case when (
+  select m.role
+  from public.memberships m
+  join public.vineyards v on v.id = m.vineyard_id
+  where v.name = 'Other Ranch' and m.user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4'
+) = 'manager' then 1 else 0 end;
 commit;
 
 begin;
@@ -362,6 +368,202 @@ exception
   when insufficient_privilege then
     null;
 end $$;
+commit;
+
+-- A manager invite does not grant manager. The person is an employee until
+-- the developer approves the request. The starting wage stays manager-only.
+begin;
+insert into public.invites (id, vineyard_id, email, display_name, role, invited_by)
+select 'cccccccc-cccc-4ccc-8ccc-ccccccccccc2', vineyard, 'lead@da.test', 'Lead', 'manager',
+       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2'
+from fix;
+insert into public.invite_wages (invite_id, vineyard_id, hourly_rate)
+select 'cccccccc-cccc-4ccc-8ccc-ccccccccccc2', vineyard, 22 from fix;
+insert into auth.users (id, email, raw_user_meta_data)
+values ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6', 'lead@da.test', '{"display_name":"Lead"}');
+select 1 / case when (
+  select role from public.memberships where user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6'
+) = 'employee' then 1 else 0 end;
+select 1 / case when (
+  select count(*) from public.manager_requests
+  where user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6' and status = 'pending'
+) = 1 then 1 else 0 end;
+select 1 / case when (
+  select hourly_rate from public.wage_rates where user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6'
+) = 22 then 1 else 0 end;
+commit;
+
+-- An employee cannot see or file a manager request.
+begin;
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', true);
+set local role authenticated;
+select 1 / case when (select count(*) from public.manager_requests) = 0 then 1 else 0 end;
+do $$
+begin
+  insert into public.manager_requests (vineyard_id, user_id, requested_by, status)
+  select vineyard, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 'pending' from fix;
+  raise exception 'FAIL employee filed a manager request';
+exception
+  when insufficient_privilege then
+    null;
+end $$;
+commit;
+
+-- A manager cannot promote someone, approve a request, or write an approved row.
+-- Filing a pending request is allowed. A second pending row for the same person is not.
+begin;
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2', true);
+set local role authenticated;
+select 1 / case when (
+  select count(*) from public.manager_requests where status = 'pending'
+) = 1 then 1 else 0 end;
+do $$
+begin
+  update public.memberships
+    set role = 'manager', client_updated_at = clock_timestamp()
+    where user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6';
+  raise exception 'FAIL manager promoted without approval';
+exception
+  when insufficient_privilege then
+    null;
+end $$;
+do $$
+begin
+  perform set_config('daranch.manager_gate', 'approve', true);
+  perform set_config('daranch.manager_gate', 'bootstrap', true);
+  update public.memberships
+    set role = 'manager', client_updated_at = clock_timestamp()
+    where user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6';
+  raise exception 'FAIL manager bypassed approval with a setting';
+exception
+  when insufficient_privilege then
+    null;
+end $$;
+do $$
+begin
+  perform public.decide_manager_request(
+    (select id from public.manager_requests where user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6' and status = 'pending'),
+    true
+  );
+  raise exception 'FAIL manager approved a manager';
+exception
+  when insufficient_privilege then
+    null;
+end $$;
+do $$
+begin
+  update public.manager_requests
+    set status = 'approved', client_updated_at = clock_timestamp()
+    where user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6';
+  raise exception 'FAIL manager wrote a request status';
+exception
+  when insufficient_privilege then
+    null;
+end $$;
+do $$
+begin
+  insert into public.manager_requests (vineyard_id, user_id, requested_by, status)
+  select vineyard, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2', 'approved' from fix;
+  raise exception 'FAIL request inserted already approved';
+exception
+  when insufficient_privilege then
+    null;
+end $$;
+do $$
+begin
+  insert into public.manager_requests (vineyard_id, user_id, requested_by, status)
+  select vineyard, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2', 'pending' from fix;
+  raise exception 'FAIL second pending request';
+exception
+  when unique_violation then
+    null;
+end $$;
+insert into public.manager_requests (id, vineyard_id, user_id, requested_by, status)
+select 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1', vineyard, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2', 'pending'
+from fix;
+select 1 / case when (
+  select role from public.memberships where user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6'
+) = 'employee' then 1 else 0 end;
+select 1 / case when (
+  select hourly_rate from public.wage_rates where user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6'
+) = 22 then 1 else 0 end;
+commit;
+
+-- The developer cannot promote by editing the membership. Turning a request
+-- down leaves the person an employee. Approving the other request makes that
+-- person a manager. Wages and cost stay hidden.
+begin;
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3', true);
+set local role authenticated;
+do $$
+begin
+  update public.memberships
+    set role = 'manager', client_updated_at = clock_timestamp()
+    where user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
+  raise exception 'FAIL developer promoted without the approval function';
+exception
+  when insufficient_privilege then
+    null;
+end $$;
+do $$
+begin
+  perform set_config('daranch.manager_gate', 'approve', true);
+  update public.memberships
+    set role = 'manager', client_updated_at = clock_timestamp()
+    where user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
+  raise exception 'FAIL developer bypassed approval with a setting';
+exception
+  when insufficient_privilege then
+    null;
+end $$;
+select public.decide_manager_request('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1', false);
+select 1 / case when (
+  select role from public.memberships where user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'
+) = 'employee' then 1 else 0 end;
+select 1 / case when (
+  select status from public.manager_requests where id = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1'
+) = 'rejected' then 1 else 0 end;
+select public.decide_manager_request(
+  (select id from public.manager_requests where user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6' and status = 'pending'),
+  true
+);
+select 1 / case when (
+  select role from public.memberships where user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6'
+) = 'manager' then 1 else 0 end;
+select 1 / case when (
+  select status from public.manager_requests where user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6'
+) = 'approved' then 1 else 0 end;
+select 1 / case when (select count(*) from public.wage_rates) = 0 then 1 else 0 end;
+select 1 / case when (select count(*) from public.invite_wages) = 0 then 1 else 0 end;
+do $$
+begin
+  perform * from public.labor_cost_summary((select vineyard from fix), 2026);
+  raise exception 'FAIL developer read labor cost after approving a manager';
+exception
+  when insufficient_privilege then
+    null;
+end $$;
+do $$
+begin
+  perform public.decide_manager_request('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1', true);
+  raise exception 'FAIL decided a request twice';
+exception
+  when insufficient_privilege then
+    null;
+end $$;
+commit;
+
+-- Making a manager back into an employee does not need another approval.
+begin;
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2', true);
+set local role authenticated;
+update public.memberships
+  set role = 'employee', client_updated_at = clock_timestamp()
+  where user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6';
+select 1 / case when (
+  select role from public.memberships where user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6'
+) = 'employee' then 1 else 0 end;
 commit;
 
 -- Anonymous role cannot read the tables.

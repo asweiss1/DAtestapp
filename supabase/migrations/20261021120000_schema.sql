@@ -78,6 +78,40 @@ create unique index invites_pending_email_idx
   on public.invites (vineyard_id, lower(email))
   where accepted_at is null and deleted_at is null;
 
+-- A request to make someone a manager. They stay an employee until the
+-- developer approves it. This table has no wage and no cost.
+create table if not exists public.manager_requests (
+  id uuid primary key default gen_random_uuid(),
+  vineyard_id uuid not null references public.vineyards (id) on delete cascade,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  requested_by uuid references public.profiles (id),
+  status text not null default 'pending',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  client_updated_at timestamptz not null default now(),
+  decided_at timestamptz,
+  decided_by uuid references public.profiles (id),
+  constraint manager_requests_status_chk check (status in ('pending', 'approved', 'rejected'))
+);
+
+create unique index if not exists manager_requests_one_pending_idx
+  on public.manager_requests (vineyard_id, user_id)
+  where status = 'pending';
+
+create index if not exists manager_requests_sync_idx
+  on public.manager_requests (vineyard_id, updated_at);
+
+-- Open only inside create_vineyard (bootstrap) and decide_manager_request
+-- (approve), for the current transaction. Not a setting a signed-in person
+-- can flip. No wages are stored here.
+create table if not exists private.manager_gate (
+  txid bigint not null,
+  kind text not null,
+  constraint manager_gate_kind_chk check (kind in ('bootstrap', 'approve'))
+);
+
+revoke all on table private.manager_gate from public, anon, authenticated;
+
 -- Starting wage for an invite. Managers only. Not a column on invites,
 -- so a developer who can add people still cannot read a wage.
 create table if not exists public.invite_wages (
@@ -503,3 +537,5 @@ comment on table public.contractor_costs is
   'Flat contractor dollars. Select is allowed only for managers. Names and hours stay on contractors.';
 comment on table public.invite_wages is
   'Optional starting wage typed when a manager adds a person. Managers only.';
+comment on table public.manager_requests is
+  'Pending promotion to manager. Approval is the developer only. No wages are stored here.';

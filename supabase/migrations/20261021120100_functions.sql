@@ -262,6 +262,48 @@ begin
 end;
 $$;
 
+-- Transaction-local permission to write role = manager. Rows are invisible
+-- to other transactions until commit, and both callers delete them before
+-- they return. Authenticated has no privilege on the table.
+create or replace function private.manager_gate_open(p_kind text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from private.manager_gate g
+    where g.txid = pg_catalog.txid_current()
+      and g.kind = p_kind
+  );
+$$;
+
+create or replace function private.manager_gate_begin(p_kind text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  insert into private.manager_gate (txid, kind)
+  values (pg_catalog.txid_current(), p_kind);
+end;
+$$;
+
+create or replace function private.manager_gate_end()
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  delete from private.manager_gate
+  where txid = pg_catalog.txid_current();
+end;
+$$;
+
 create or replace function private.guard_membership()
 returns trigger
 language plpgsql
@@ -282,6 +324,40 @@ begin
     if auth.uid() is not null and not private.is_developer(new.vineyard_id) then
       raise exception 'Only the setup SQL can assign the developer role';
     end if;
+  end if;
+  -- Becoming a manager requires the developer's approval, except the SQL
+  -- editor (auth.uid() is null) and the two gates opened inside this database:
+  -- bootstrap for the person who creates a brand-new vineyard, and approve
+  -- inside public.decide_manager_request. A signed-in person cannot open
+  -- either gate.
+  if new.role = 'manager' and (tg_op = 'INSERT' or old.role is distinct from 'manager') then
+    if auth.uid() is null
+       or private.manager_gate_open('bootstrap')
+       or (private.manager_gate_open('approve') and private.is_developer(new.vineyard_id)) then
+      null;
+    else
+      raise exception 'Aaron has to approve a manager' using errcode = '42501';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function private.guard_manager_request()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if tg_op = 'INSERT' and new.status is distinct from 'pending' then
+    raise exception 'A manager request starts as pending' using errcode = '42501';
+  end if;
+  if tg_op = 'UPDATE'
+     and new.status is distinct from old.status
+     and not private.manager_gate_open('approve')
+     and auth.uid() is not null then
+    raise exception 'Aaron approves managers in the app' using errcode = '42501';
   end if;
   return new;
 end;
@@ -349,15 +425,26 @@ begin
       and i.accepted_at is null
       and i.deleted_at is null
   loop
+    -- An invite marked manager does not grant that role. The person joins
+    -- as an employee and a request waits for the developer.
     insert into public.memberships (vineyard_id, user_id, role)
-    values (r.vineyard_id, p_user, r.role)
+    values (r.vineyard_id, p_user, 'employee')
     on conflict (vineyard_id, user_id) do update
       set active = true,
-          role = case
-            when public.memberships.role = 'developer' then public.memberships.role
-            else excluded.role
-          end,
           client_updated_at = pg_catalog.clock_timestamp();
+
+    if r.role = 'manager' then
+      insert into public.manager_requests (vineyard_id, user_id, requested_by, status)
+      select r.vineyard_id, p_user, r.invited_by, 'pending'
+      where exists (
+        select 1
+        from public.memberships m
+        where m.vineyard_id = r.vineyard_id
+          and m.user_id = p_user
+          and m.role = 'employee'
+      )
+      on conflict (vineyard_id, user_id) where status = 'pending' do nothing;
+    end if;
 
     select (timezone(v.timezone, pg_catalog.now()))::date
       into v_day
@@ -521,8 +608,12 @@ begin
   values (left(v_name, 80))
   returning id into v_id;
 
+  -- The founder of a brand-new vineyard is its first manager. This does not
+  -- promote anyone on a vineyard that already exists.
+  perform private.manager_gate_begin('bootstrap');
   insert into public.memberships (vineyard_id, user_id, role)
   values (v_id, auth.uid(), 'manager');
+  perform private.manager_gate_end();
 
   perform private.seed_vineyard_defaults(v_id);
   return v_id;
@@ -765,7 +856,7 @@ declare
   t text;
 begin
   foreach t in array array[
-    'vineyards', 'profiles', 'memberships', 'invites', 'invite_wages',
+    'vineyards', 'profiles', 'memberships', 'invites', 'invite_wages', 'manager_requests',
     'blocks', 'tasks', 'passes', 'pass_tasks', 'chemicals',
     'labor_entries', 'row_progress', 'spray_logs', 'watering_logs', 'weed_logs',
     'harvest_samples', 'equipment', 'service_types', 'service_logs',
@@ -800,6 +891,10 @@ drop trigger if exists memberships_b_guard on public.memberships;
 create trigger memberships_b_guard before insert or update on public.memberships
   for each row execute function private.guard_membership();
 
+drop trigger if exists manager_requests_b_guard on public.manager_requests;
+create trigger manager_requests_b_guard before insert or update on public.manager_requests
+  for each row execute function private.guard_manager_request();
+
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
@@ -821,7 +916,56 @@ grant execute on function private.guard_labor_update() to authenticated;
 grant execute on function private.guard_row_status() to authenticated;
 grant execute on function private.guard_area() to authenticated;
 grant execute on function private.guard_membership() to authenticated;
+grant execute on function private.guard_manager_request() to authenticated;
 grant execute on function private.guard_pass_task() to authenticated;
+
+-- Developer only. Sets the membership to manager and closes the request.
+-- Does not read or write wages.
+create or replace function public.decide_manager_request(p_id uuid, p_approve boolean)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  r public.manager_requests;
+begin
+  if auth.uid() is null then
+    raise exception 'sign in first' using errcode = '42501';
+  end if;
+
+  select * into r from public.manager_requests where id = p_id;
+  if r.id is null or r.status is distinct from 'pending' then
+    raise exception 'That request is not waiting' using errcode = '42501';
+  end if;
+  if not private.is_developer(r.vineyard_id) then
+    raise exception 'Only the developer can approve a manager' using errcode = '42501';
+  end if;
+
+  perform private.manager_gate_begin('approve');
+  if p_approve then
+    update public.memberships
+      set role = 'manager',
+          active = true,
+          client_updated_at = pg_catalog.clock_timestamp()
+      where vineyard_id = r.vineyard_id
+        and user_id = r.user_id
+        and role = 'employee';
+    if not found then
+      raise exception 'That person is not an employee on this vineyard' using errcode = '42501';
+    end if;
+  end if;
+
+  update public.manager_requests
+    set status = case when p_approve then 'approved' else 'rejected' end,
+        decided_at = pg_catalog.clock_timestamp(),
+        decided_by = auth.uid(),
+        client_updated_at = pg_catalog.clock_timestamp()
+    where id = r.id;
+
+  perform private.manager_gate_end();
+end;
+$$;
 
 revoke all on function public.claim_invites() from public, anon;
 revoke all on function public.create_vineyard(text) from public, anon;
@@ -831,3 +975,5 @@ grant execute on function public.claim_invites() to authenticated;
 grant execute on function public.create_vineyard(text) to authenticated;
 grant execute on function public.close_stale_jobs(uuid) to authenticated;
 grant execute on function public.labor_cost_summary(uuid, integer) to authenticated;
+revoke all on function public.decide_manager_request(uuid, boolean) from public, anon;
+grant execute on function public.decide_manager_request(uuid, boolean) to authenticated;

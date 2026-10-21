@@ -145,3 +145,89 @@ test("a manager can set a wage and a developer cannot see cost", () => {
   assert.match(devExport, /hours, not wages or cost/);
   assert.doesNotMatch(devExport, /Labor cost uses/);
 });
+
+test("nobody becomes a manager until Aaron approves the request", () => {
+  const managerMore = renderApp(base({
+    route: "more",
+    role: "manager",
+    data: {
+      ...base().data,
+      members: [
+        { id: "m1", user_id: "u1", role: "manager", active: true },
+        { id: "m2", user_id: "u2", role: "employee", active: true },
+      ],
+    },
+  }));
+  assert.doesNotMatch(managerMore, /Manager requests/);
+
+  const developerMore = renderApp(base({
+    route: "more",
+    role: "developer",
+    data: {
+      ...base().data,
+      members: [{ id: "m1", user_id: "u1", role: "developer", active: true }],
+    },
+  }));
+  assert.match(developerMore, /Manager requests/);
+  assert.doesNotMatch(developerMore, /wage-form/);
+
+  const waiting = renderApp(base({
+    route: "crew",
+    role: "manager",
+    data: {
+      ...base().data,
+      members: [
+        { id: "m1", user_id: "u1", role: "manager", active: true },
+        { id: "m2", user_id: "u2", role: "employee", active: true },
+      ],
+      invites: [{ id: "i1", email: "lead@da.test", display_name: "Lead", role: "manager" }],
+      managerRequests: [{ id: "r1", user_id: "u2", vineyard_id: "v1", status: "pending", requested_by: "u1" }],
+    },
+  }));
+  assert.match(waiting, /Waiting for Aaron\. Still an employee\./);
+  assert.match(waiting, /Manager, after Aaron approves/);
+  assert.doesNotMatch(waiting, /Ask for manager/);
+  assert.match(waiting, /wage-form/);
+
+  const ask = renderApp(base({
+    route: "crew",
+    role: "developer",
+    data: {
+      ...base().data,
+      members: [
+        { id: "m1", user_id: "u1", role: "developer", active: true },
+        { id: "m2", user_id: "u2", role: "employee", active: true },
+      ],
+    },
+  }));
+  assert.match(ask, /Ask for manager/);
+  assert.doesNotMatch(ask, /wage-form/);
+  assert.doesNotMatch(ask, /Hourly wage/);
+
+  const screen = renderApp(base({
+    route: "managers",
+    role: "developer",
+    profile: { id: "u1", display_name: "Aaron", theme: "sage" },
+    data: {
+      ...base().data,
+      members: [
+        { id: "m1", user_id: "u1", role: "developer", active: true },
+        { id: "m2", user_id: "u2", role: "employee", active: true },
+      ],
+      profiles: [{ id: "u1", display_name: "Aaron" }, { id: "u2", display_name: "Sam" }],
+      managerRequests: [{ id: "r1", user_id: "u2", requested_by: "u1", status: "pending" }],
+    },
+  }));
+  assert.match(screen, /Sam/);
+  assert.match(screen, /Asked by Aaron/);
+  assert.match(screen, /Approve/);
+  assert.match(screen, /Turn down/);
+  assert.match(screen, /data-act="decide-manager"/);
+  assert.match(screen, /Wages are not on this screen/);
+  assert.doesNotMatch(screen, /wage-form/);
+  assert.doesNotMatch(screen, /Hourly wage/);
+
+  const hidden = renderApp(base({ route: "managers", role: "manager" }));
+  assert.match(hidden, /Aaron approves managers/);
+  assert.doesNotMatch(hidden, /data-act="decide-manager"/);
+});

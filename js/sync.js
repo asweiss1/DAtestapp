@@ -15,6 +15,7 @@ const COLUMNS = {
   profiles: ["id", "display_name", "theme", "client_updated_at"],
   memberships: ["id", "vineyard_id", "user_id", "role", "active", "client_updated_at"],
   invites: ["id", "vineyard_id", "email", "display_name", "role", "invited_by", "accepted_at", "accepted_user_id", "deleted_at", "client_updated_at"],
+  manager_requests: ["id", "vineyard_id", "user_id", "requested_by", "status", "decided_at", "decided_by", "client_updated_at"],
   invite_wages: ["invite_id", "vineyard_id", "hourly_rate", "client_updated_at"],
   areas: ["id", "vineyard_id", "name", "kind", "is_system", "sort_order", "archived", "client_updated_at", "deleted_at"],
   blocks: ["id", "vineyard_id", "name", "variety", "row_count", "plant_count", "sort_order", "archived", "client_updated_at", "deleted_at"],
@@ -54,7 +55,7 @@ export function tablesForRole(role) {
     "harvest_samples", "equipment", "service_types", "service_logs", "contractors",
     "season_notes", "memberships",
   ];
-  if (role === "manager" || role === "developer") tables.push("invites", "bug_reports");
+  if (role === "manager" || role === "developer") tables.push("invites", "bug_reports", "manager_requests");
   if (role === "manager") tables.push("wage_rates", "invite_wages", "contractor_costs");
   return tables;
 }
