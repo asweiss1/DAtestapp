@@ -12,7 +12,7 @@ begin
     'vineyards', 'profiles', 'memberships', 'invites', 'invite_wages', 'manager_requests',
     'areas', 'blocks', 'tasks', 'passes', 'pass_tasks', 'chemicals',
     'labor_entries', 'row_progress', 'spray_logs', 'watering_logs', 'weed_logs',
-    'harvest_samples', 'equipment', 'service_types', 'service_logs',
+    'harvest_samples', 'equipment', 'service_types', 'service_logs', 'variety_quotes',
     'contractors', 'contractor_costs', 'wage_rates', 'bug_reports', 'season_notes'
   ]
   loop
@@ -255,6 +255,23 @@ create policy chemicals_insert on public.chemicals
 
 drop policy if exists chemicals_update on public.chemicals;
 create policy chemicals_update on public.chemicals
+  for update to authenticated
+  using ((select private.can_edit_catalog(vineyard_id)))
+  with check ((select private.can_edit_catalog(vineyard_id)));
+
+-- Variety lines. The whole crew can read them. A manager or the developer edits them.
+drop policy if exists variety_quotes_select on public.variety_quotes;
+create policy variety_quotes_select on public.variety_quotes
+  for select to authenticated
+  using ((select private.is_member(vineyard_id)));
+
+drop policy if exists variety_quotes_insert on public.variety_quotes;
+create policy variety_quotes_insert on public.variety_quotes
+  for insert to authenticated
+  with check ((select private.can_edit_catalog(vineyard_id)));
+
+drop policy if exists variety_quotes_update on public.variety_quotes;
+create policy variety_quotes_update on public.variety_quotes
   for update to authenticated
   using ((select private.can_edit_catalog(vineyard_id)))
   with check ((select private.can_edit_catalog(vineyard_id)));

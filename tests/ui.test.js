@@ -367,3 +367,87 @@ test("a manager edits the weather point and the station link", () => {
   const developer = renderApp(base({ route: "settings", role: "developer" }));
   assert.doesNotMatch(developer, /Weather location/);
 });
+
+test("a block screen shows one sourced line for that variety", () => {
+  const html = renderApp(base({ route: "block", param: "b1", quoteVisit: "visit" }));
+  assert.match(html, /class="quote"/);
+  assert.match(html, /Raspberry-perfumed/);
+  assert.match(html, /Hugh Johnson/);
+  assert.match(html, /Pocket Wine Book 2023/);
+  const task = renderApp(base({ route: "task", param: "b1/t1", quoteVisit: "visit" }));
+  assert.match(task, /Raspberry-perfumed/);
+  const working = renderApp(base({
+    route: "work",
+    quoteVisit: "visit",
+    flow: { step: "task", blockId: "b1", crew: {} },
+  }));
+  assert.match(working, /Raspberry-perfumed/);
+});
+
+test("managers edit quotes and the crew only reads them", () => {
+  const manager = renderApp(base({
+    route: "setup",
+    role: "manager",
+    data: { ...base().data, quotes: [{ id: "q1", variety: "Tannat", text: "A saved line for the test.", author: "Ada", source: "A notebook on the ranch." }] },
+  }));
+  assert.match(manager, /id="quote-form"/);
+  assert.match(manager, /A saved line for the test/);
+  assert.match(manager, /data-act="edit-quote"/);
+  const employee = renderApp(base({ route: "setup", role: "employee" }));
+  assert.doesNotMatch(employee, /quote-form/);
+});
+
+test("find parts is on More and on an equipment row", () => {
+  const more = renderApp(base({ route: "more" }));
+  assert.match(more, /#\/parts/);
+  assert.match(more, /Find parts/);
+  const maintenance = renderApp(base({
+    route: "maintenance",
+    data: {
+      ...base().data,
+      equipment: [{ id: "e1", name: "Vineyard tractor", make: "Kubota", model: "L3901", serial: "K-100", year: 2014 }],
+    },
+  }));
+  assert.match(maintenance, /name="make"/);
+  assert.match(maintenance, /#\/parts\/e1/);
+  assert.match(maintenance, /Kubota/);
+});
+
+test("a machine without a model asks for one before the search links", () => {
+  const html = renderApp(base({
+    route: "parts",
+    param: "e1",
+    online: true,
+    data: {
+      ...base().data,
+      equipment: [{ id: "e1", name: "Vineyard tractor", make: "Kubota", model: "", serial: "K-100", year: 2014 }],
+    },
+  }));
+  assert.match(html, /id="equip-model"/);
+  assert.match(html, /Add the model/);
+  assert.doesNotMatch(html, /data-act="open-part"/);
+});
+
+test("find parts builds browser links and says so when offline", () => {
+  const html = renderApp(base({
+    route: "parts",
+    param: "e1",
+    online: true,
+    partQuery: "Kubota L3901 2014 K-100",
+    data: {
+      ...base().data,
+      equipment: [{ id: "e1", name: "Vineyard tractor", make: "Kubota", model: "L3901", serial: "K-100", year: 2014 }],
+    },
+  }));
+  assert.match(html, /shop\.deere\.com\/us\/search\?text=Kubota/);
+  assert.match(html, /site%3Ashop\.kubotausa\.com/);
+  assert.match(html, /tractorsupply\.com\/tsc\/search\//);
+  assert.match(html, /amazon\.com\/s\?k=/);
+  assert.match(html, /ebay\.com\/sch\/i\.html\?_nkw=/);
+  assert.match(html, /golfcartparts\.com\/search\?q=/);
+  assert.match(html, /google\.com\/search\?q=/);
+  assert.match(html, /Fencing/);
+  const offline = renderApp(base({ route: "parts", online: false }));
+  assert.match(offline, /Find parts needs a connection/);
+  assert.doesNotMatch(offline, /data-act="open-part"/);
+});

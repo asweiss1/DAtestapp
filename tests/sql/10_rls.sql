@@ -950,4 +950,55 @@ exception
     null;
 end $$;
 
+select 1 / case when (
+  select count(*) from information_schema.columns
+  where table_schema = 'public' and table_name = 'equipment'
+    and column_name in ('make', 'model', 'serial', 'year')
+) = 4 then 1 else 0 end;
+
+select 1 / case when (select count(*) from public.variety_quotes) = 19 then 1 else 0 end;
+select 1 / case when (select count(*) from public.variety_quotes where variety = '') = 4 then 1 else 0 end;
+select 1 / case when (select count(*) from public.variety_quotes where variety = 'Cabernet Sauvignon') = 3 then 1 else 0 end;
+select 1 / case when (select count(*) from public.variety_quotes where variety = 'Syrah') = 2 then 1 else 0 end;
+select 1 / case when (select count(*) from public.variety_quotes where author = 'Jancis Robinson') = 3 then 1 else 0 end;
+select 1 / case when (select count(*) from public.variety_quotes where source like '%Pocket Wine Book 2023%') = 12 then 1 else 0 end;
+select 1 / case when (select count(*) from public.variety_quotes where author = 'Robert Louis Stevenson') = 2 then 1 else 0 end;
+select 1 / case when (select count(*) from public.variety_quotes where author = 'Thomas Jefferson') = 1 then 1 else 0 end;
+select 1 / case when (select count(*) from public.variety_quotes where author = 'Pliny the Elder') = 1 then 1 else 0 end;
+
+do $$
+begin
+  insert into public.equipment (vineyard_id, name, year)
+  select id, 'Too old', 1800 from public.vineyards where name = 'DA Ranch';
+  raise exception 'FAIL equipment year';
+exception
+  when check_violation then
+    null;
+end $$;
+
+begin;
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', true);
+set local role authenticated;
+select 1 / case when (select count(*) from public.variety_quotes) = 19 then 1 else 0 end;
+do $$
+begin
+  insert into public.variety_quotes (vineyard_id, variety, text, author, source)
+  select id, 'Tannat', 'An employee quote that should not save.', 'Crew', 'Not a published source.'
+  from public.vineyards where name = 'DA Ranch';
+  raise exception 'FAIL employee inserted a quote';
+exception
+  when insufficient_privilege then
+    null;
+end $$;
+commit;
+
+begin;
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2', true);
+set local role authenticated;
+insert into public.variety_quotes (vineyard_id, variety, text, author, source)
+select id, 'Tannat', 'A manager line kept for the test.', 'Maria', 'Typed on the lists screen.'
+from public.vineyards where name = 'DA Ranch';
+select 1 / case when (select count(*) from public.variety_quotes where author = 'Maria') = 1 then 1 else 0 end;
+commit;
+
 select 'RLS_OK';

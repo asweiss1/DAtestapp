@@ -142,3 +142,7 @@ textarea { min-height: 7rem; }
 .small { font-size: .92rem; }
 img.shot { width: 100%; border-radius: 10px; max-height: 12rem; object-fit: cover; }
 .hidden { display: none; }
+.quote { margin: 0 0 .75rem; color: var(--muted); font-size: .82rem; line-height: 1.35; }
+.quote .quote-by { display: block; font-style: normal; font-size: .75rem; margin-top: .15rem; }
+.chips { display: flex; flex-wrap: wrap; gap: .4rem; margin: .2rem 0 .8rem; }
+.chips button { font-size: .85rem; padding: .45rem .7rem; }

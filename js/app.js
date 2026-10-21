@@ -49,6 +49,8 @@ import {
   zonedParts,
   addHours,
 } from "./logic.js";
+import { machineQuery, needsModel, partSearchUrl, pushPartRecent } from "./parts.js";
+import { BUNDLED_QUOTES } from "./quotes.js";
 import { signedPhotoUrls, syncAll } from "./sync.js";
 import { tourSteps } from "./tour.js";
 import { renderApp } from "./ui.js";
@@ -68,6 +70,7 @@ const KEY_BY_TABLE = {
   weed_logs: "weeds",
   harvest_samples: "samples",
   equipment: "equipment",
+  variety_quotes: "quotes",
   service_types: "serviceTypes",
   service_logs: "serviceLogs",
   contractors: "contractors",
@@ -87,7 +90,7 @@ function emptyData() {
   return {
     blocks: [], tasks: [], passes: [], passTasks: [], areas: [], chemicals: [],
     labor: [], rows: [], sprays: [], watering: [], weeds: [], samples: [],
-    equipment: [], serviceTypes: [], serviceLogs: [], contractors: [], contractorCosts: [],
+    equipment: [], serviceTypes: [], serviceLogs: [], quotes: [], contractors: [], contractorCosts: [],
     members: [], profiles: [], invites: [], managerRequests: [], wages: [], bugs: [], seasons: [],
   };
 }
@@ -124,6 +127,9 @@ const state = {
   pendingPaint: false,
   weather: null,
   heatAsk: false,
+  partQuery: "",
+  partRecent: [],
+  quoteEdit: null,
 };
 
 let db = null;
@@ -211,7 +217,7 @@ function paint() {
 }
 
 function blankToNull(record) {
-  const nullable = /(_id|_at)$|^(photo_path|plant_count|hours|row_start|row_end|row_status|close_reason)$/;
+  const nullable = /(_id|_at)$|^(photo_path|plant_count|hours|row_start|row_end|row_status|close_reason|year)$/;
   for (const key of Object.keys(record)) {
     if (record[key] === "" && nullable.test(key) && key !== "client_id") record[key] = null;
   }
@@ -760,8 +766,10 @@ function removeAsked(table, id) {
     spray_logs: "sprays",
     harvest_samples: "samples",
     invites: "invites",
+    variety_quotes: "quotes",
   };
   if (table === "invites" && !lead()) return;
+  if (table === "variety_quotes" && !lead()) return;
   const key = soft[table];
   const row = key ? state.data[key].find((r) => r.id === id) : null;
   if (!row) return;
@@ -780,6 +788,7 @@ function confirmText(table, id) {
   if (table === "passes") return "Archive this pass? Hours already logged stay in the reports.";
   if (table === "labor_entries") return "Remove this time entry?";
   if (table === "invites") return "Remove this person from the waiting list?";
+  if (table === "variety_quotes") return "Remove this quote?";
   return "Remove this?";
 }
 
@@ -805,6 +814,7 @@ function parseHash() {
   const head = parts[0] || "home";
   if (head === "block" && parts[1]) return { route: "block", param: parts[1], editId: null };
   if (head === "task" && parts[2]) return { route: "task", param: `${parts[1]}/${parts[2]}`, editId: null };
+  if (head === "parts") return { route: "parts", param: parts[1] || "", editId: null };
   const known = ["work", "finish", "export", "more", "hours", "manual", "crew", "passes", "setup", "contractors", "maintenance", "settings", "bug", "bugs", "managers"];
   if (!parts.length) return { route: "home", param: "", editId: null };
   if (known.includes(head)) return { route: head, param: "", editId: head === "manual" ? query.get("edit") : null };
@@ -817,6 +827,11 @@ function applyRoute() {
   if (parsed.route === "block" && parsed.param !== state.param) {
     state.tab = "tasks";
     state.sprayId = null;
+  }
+  if (parsed.route === "parts" && (state.route !== "parts" || parsed.param !== state.param)) {
+    const gear = state.data.equipment.find((row) => row.id === parsed.param);
+    state.partQuery = gear && needsModel(gear) ? "" : machineQuery(gear);
+    state.partRecent = loadPartRecent(parsed.param);
   }
   state.route = parsed.route;
   state.param = parsed.param;
@@ -1013,7 +1028,28 @@ function onClick(event) {
   else if (act === "install") state.installEvent?.prompt();
   else if (act === "tour-next") advanceTour();
   else if (act === "tour-skip") finishTour();
-  else if (act === "replay-tour") {
+  else if (act === "edit-quote") {
+    state.quoteEdit = el.dataset.id;
+    paint();
+  } else if (act === "part-chip") {
+    const gear = state.data.equipment.find((row) => row.id === state.param);
+    const machine = gear && !needsModel(gear) ? machineQuery(gear) : "";
+    state.partQuery = [machine, el.dataset.q].filter(Boolean).join(" ");
+    paint();
+  } else if (act === "open-part") {
+    if (state.online === false) {
+      state.notice = "Find parts needs a connection.";
+      paint();
+      return;
+    }
+    const query = document.querySelector("#parts-q")?.value.trim() || state.partQuery || "";
+    const partNumber = document.querySelector("#parts-number")?.value.trim() || "";
+    const url = partSearchUrl(el.dataset.site, query);
+    if (!url) return;
+    state.partQuery = query;
+    rememberPart(state.param, { query, partNumber });
+    window.open(url, "_blank", "noopener");
+  } else if (act === "replay-tour") {
     state.tour = { step: 0, moved: true };
     paint();
   }
@@ -1054,6 +1090,9 @@ function onSubmit(event) {
   if (id === "add-chemical") return saveChemical(fd);
   if (id === "contractor-form") return saveContractor(fd);
   if (id === "equip-form") return saveEquip(fd);
+  if (id === "equip-model") return saveEquipModel(fd);
+  if (id === "quote-form") return saveQuote(fd);
+  if (id === "parts-query") return savePartNumber(fd);
   if (id === "service-form") return saveService(fd);
   if (id === "type-form") return saveServiceType(fd);
   if (id === "name-form") return saveName(fd);
@@ -1334,15 +1373,119 @@ function saveContractor(fd) {
   paint();
 }
 
+function equipmentFields(fd, prior = {}) {
+  const make = String(fd.get("make") ?? prior.make ?? "").trim();
+  const model = String(fd.get("model") ?? prior.model ?? "").trim();
+  const serial = String(fd.get("serial") ?? prior.serial ?? "").trim();
+  const raw = fd.get("year");
+  let year = prior.year ?? null;
+  if (raw !== null && raw !== undefined) {
+    const text = String(raw).trim();
+    if (text === "") year = null;
+    else {
+      const n = Number(text);
+      if (!Number.isInteger(n) || n < 1900 || n > 2100) return { error: "Year should be between 1900 and 2100." };
+      year = n;
+    }
+  }
+  return { make, model, serial, year };
+}
+
 function saveEquip(fd) {
+  const fields = equipmentFields(fd);
+  if (fields.error) {
+    state.notice = fields.error;
+    paint();
+    return;
+  }
   save("equipment", {
     id: crypto.randomUUID(),
     vineyard_id: state.vineyard.id,
     name: String(fd.get("name") || "").trim(),
     notes: String(fd.get("notes") || ""),
+    make: fields.make,
+    model: fields.model,
+    serial: fields.serial,
+    year: fields.year,
     archived: false,
     deleted_at: null,
   });
+  state.notice = "Equipment saved.";
+}
+
+function saveEquipModel(fd) {
+  const gear = state.data.equipment.find((row) => row.id === state.param);
+  if (!gear) return;
+  const fields = equipmentFields(fd, gear);
+  if (fields.error) {
+    state.notice = fields.error;
+    paint();
+    return;
+  }
+  if (!fields.model) {
+    state.notice = "Type the model.";
+    paint();
+    return;
+  }
+  const next = { ...gear, ...fields };
+  save("equipment", next, { paintNow: false });
+  state.partQuery = machineQuery(next);
+  state.notice = "Model saved.";
+  paint();
+}
+
+function saveQuote(fd) {
+  if (!lead()) return;
+  const text = String(fd.get("text") || "").trim();
+  const author = String(fd.get("author") || "").trim();
+  const source = String(fd.get("source") || "").trim();
+  const variety = String(fd.get("variety") || "").trim();
+  if (text.length < 8 || author.length < 2 || source.length < 8) {
+    state.notice = "A quote needs the words, who said them, and the book or article.";
+    paint();
+    return;
+  }
+  const existing = state.quoteEdit ? (state.data.quotes || []).find((row) => row.id === state.quoteEdit) : null;
+  save("variety_quotes", {
+    id: existing?.id || crypto.randomUUID(),
+    vineyard_id: state.vineyard.id,
+    variety,
+    text,
+    author,
+    source,
+    archived: false,
+    deleted_at: null,
+  });
+  state.quoteEdit = null;
+  state.notice = "Quote saved.";
+}
+
+function savePartNumber(fd) {
+  const query = String(fd.get("q") || state.partQuery || "").trim();
+  const partNumber = String(fd.get("part_number") || "").trim();
+  if (!partNumber && !query) return;
+  state.partQuery = query;
+  rememberPart(state.param, { query, partNumber });
+  state.notice = partNumber ? "Part number saved on this phone." : "Search saved on this phone.";
+  paint();
+}
+
+function loadPartRecent(id) {
+  try {
+    const bag = JSON.parse(localStorage.getItem("daranch-parts") || "{}");
+    return bag[id || "any"] || [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberPart(id, entry) {
+  const key = id || "any";
+  let bag = {};
+  try { bag = JSON.parse(localStorage.getItem("daranch-parts") || "{}"); } catch { bag = {}; }
+  bag[key] = pushPartRecent(bag[key] || [], entry);
+  try { localStorage.setItem("daranch-parts", JSON.stringify(bag)); } catch { /* still show it this session */ }
+  state.partRecent = bag[key];
 }
 
 function saveService(fd) {
@@ -2074,6 +2217,18 @@ function startDemo() {
   state.year = seasonYear("America/Phoenix");
   state.data = emptyData();
   state.data.blocks = [{ id: blockId, name: "DA Tannat", variety: "Tannat", row_count: 4, plant_count: 100, sort_order: 1 }];
+  state.data.quotes = BUNDLED_QUOTES.map((row) => ({ ...row, vineyard_id: vineyardId }));
+  state.data.equipment = [{
+    id: "88888888-8888-4888-8888-888888888888",
+    vineyard_id: vineyardId,
+    name: "Vineyard tractor",
+    make: "Kubota",
+    model: "",
+    serial: "K-100",
+    year: 2014,
+    notes: "",
+    archived: false,
+  }];
   state.data.tasks = [{ id: taskId, slug: "leaf-pulling", label: "Leaf pulling", sort_order: 1 }];
   state.data.areas = [{ id: "33333333-3333-4333-8333-333333333333", name: "Non-field work", kind: "non_field", is_system: true, sort_order: 0 }];
   state.data.members = [{ id: "m1", user_id: userId, vineyard_id: vineyardId, role, active: true }];

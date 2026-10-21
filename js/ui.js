@@ -1,4 +1,6 @@
 import { APP_NAME, CORNVILLE_LAT, CORNVILLE_LON, DEFAULT_WEATHER_URL, THEMES } from "./config.js";
+import { machineQuery, needsModel, PART_TOPICS, partSearchLinks } from "./parts.js";
+import { pickQuote, quotesToShow, quoteVisitKey } from "./quotes.js";
 import { tourSteps } from "./tour.js";
 import { heatAlert, stationUrl, weatherLines } from "./weather.js";
 import {
@@ -35,6 +37,13 @@ function nameOf(list, id, field = "name") {
 
 function personName(state, id) {
   return state.data.profiles.find((p) => p.id === id)?.display_name || "Crew";
+}
+
+function blockQuote(state, block) {
+  if (!block) return "";
+  const row = pickQuote(quotesToShow(state.data?.quotes), block.variety, state.quoteVisit || quoteVisitKey());
+  if (!row?.text) return "";
+  return `<p class="quote">“${esc(row.text)}” <span class="quote-by">${esc(row.author)}. ${esc(row.source)}</span></p>`;
 }
 
 export function jobTitle(state, job) {
@@ -231,8 +240,10 @@ function work(state) {
   const tasks = byName(alive(state.data.tasks));
   const passes = byName(alive(state.data.passes));
   if (flow.step === "task") {
+    const picked = state.data.blocks.find((b) => b.id === flow.blockId);
     return shell(state, `
       <h2>What are you doing?</h2>
+      ${blockQuote(state, picked)}
       ${passes.map((p) => {
         const names = state.data.passTasks.filter((pt) => pt.pass_id === p.id).sort((a, b) => a.sort_order - b.sort_order)
           .map((pt) => nameOf(state.data.tasks, pt.task_id, "label")).filter(Boolean);
@@ -245,6 +256,7 @@ function work(state) {
   const block = state.data.blocks.find((b) => b.id === flow.blockId);
   return shell(state, `
     <h2>Tap the row you are starting</h2>
+    ${blockQuote(state, block)}
     <p class="muted">This starts your clock.</p>
     ${legend()}
     ${block ? rowGrid(state, block, flow.passId ? passTaskIds(state, flow.passId) : [flow.taskId], { act: "pick-start-row" }) : ""}
@@ -271,6 +283,7 @@ function finish(state) {
   return shell(state, `
     <h2>Finish ${esc(title.task)}</h2>
     <p class="meta">${esc(title.place)} · still on it: ${esc(names)}</p>
+    ${blockQuote(state, block)}
     <p class="note">This stops the clock for everyone still on the job. Each person keeps the time from when they joined.</p>
     ${block ? `<section class="panel stack"><h2>Tap the last row you finished</h2>${legend()}${rowGrid(state, block, taskIds, { startRow: job.row_start, endRow: flow.rowEnd, act: "pick-end-row" })}
       <div class="pair">
@@ -324,6 +337,7 @@ function blockScreen(state) {
   const lead = state.role === "manager" || state.role === "developer";
   return shell(state, `
     <h2>${esc(block.name)}</h2>
+    ${blockQuote(state, block)}
     <div class="tabs">${tabs}</div>
     ${body}
     ${lead && tab === "tasks" ? `<form class="form" id="block-meta">
@@ -385,6 +399,7 @@ function taskScreen(state) {
   return shell(state, `
     <h2>${esc(task.label)}</h2>
     <p class="meta">${esc(block.name)} · ${done} of ${block.row_count} complete · ${esc(formatHours(hrs) || "0")} hours this season</p>
+    ${blockQuote(state, block)}
     <p class="muted">Tap a row to start the clock. Tap again, on the last row, when you stop.</p>
     ${legend()}
     ${rowGrid(state, block, [task.id], { act: "task-row", startRow: openJobFor(state.data.labor, state.userId)?.block_id === block.id && openJobFor(state.data.labor, state.userId)?.task_id === task.id ? openJobFor(state.data.labor, state.userId).row_start : null })}
@@ -404,6 +419,7 @@ function more(state) {
     ["#/hours", "Hours"],
     ["#/manual", "Add forgotten hours"],
     ["#/maintenance", "Maintenance"],
+    ["#/parts", "Find parts"],
     ["#/settings", "Color and settings"],
     ["#/bug", "Report a problem"],
   ];
@@ -600,7 +616,27 @@ function setupScreen(state) {
       <ul class="list">${chems.slice(0, 20).map((c) => `<li><div><strong>${esc(c.name)}</strong><p class="meta">${esc(c.category)}${c.sds_url ? ` · <a href="${esc(c.sds_url)}" target="_blank" rel="noopener">Safety sheet</a>` : ""}</p></div></li>`).join("")}
       ${chems.length > 20 ? `<li><div class="muted">${chems.length - 20} more are in the spray picker.</div></li>` : ""}</ul>
     </section>
+    ${quoteEditor(state)}
   `);
+}
+
+function quoteEditor(state) {
+  const stored = Array.isArray(state.data.quotes) && state.data.quotes.some((row) => !row.deleted_at);
+  const rows = quotesToShow(state.data.quotes);
+  const editing = stored ? (state.data.quotes || []).find((row) => row.id === state.quoteEdit && !row.deleted_at) : null;
+  return `<section class="panel"><h2>Variety quotes</h2>
+    <p class="muted">One short line shows on a block. Leave variety blank for every block. Keep the words, the author, and the book or article.</p>
+    <form class="form" id="quote-form">
+      <input name="variety" placeholder="Variety (blank for any block)" value="${esc(editing?.variety || "")}" />
+      <textarea name="text" placeholder="Quote" required>${esc(editing?.text || "")}</textarea>
+      <input name="author" placeholder="Author" value="${esc(editing?.author || "")}" required />
+      <input name="source" placeholder="Book or article" value="${esc(editing?.source || "")}" required />
+      <button class="ghost" type="submit">${editing ? "Save quote" : "Add quote"}</button>
+    </form>
+    <ul class="list">${rows.map((row) => `<li><div><strong>${esc(row.variety || "Any block")}</strong><p class="meta">“${esc(row.text)}” ${esc(row.author)}</p></div>
+      ${stored ? `<span class="pair"><button class="ghost" type="button" data-act="edit-quote" data-id="${esc(row.id)}">Edit</button>
+      <button class="danger" type="button" data-act="ask-delete" data-table="variety_quotes" data-id="${esc(row.id)}">Remove</button></span>` : ""}</li>`).join("")}</ul>
+  </section>`;
 }
 
 function contractorsScreen(state) {
@@ -624,6 +660,38 @@ function contractorsScreen(state) {
   `);
 }
 
+function partsScreen(state) {
+  const gear = state.param ? (state.data.equipment || []).find((row) => row.id === state.param && !row.deleted_at) : null;
+  if (state.param && !gear) return shell(state, `<p>That machine is not on this phone.</p>`);
+  const askModel = needsModel(gear);
+  const query = state.partQuery ?? (askModel ? "" : machineQuery(gear));
+  const recent = state.partRecent || [];
+  const offline = state.online === false;
+  const links = askModel || offline ? [] : partSearchLinks(query);
+  return shell(state, `
+    <h2>Find parts</h2>
+    ${gear ? `<p class="meta">${esc([gear.name, gear.make, gear.model].filter(Boolean).join(" · "))}</p>` : `<p class="muted">Fencing, irrigation, tractor parts, a golf cart, or a Gator.</p>`}
+    ${askModel ? `<form class="form" id="equip-model">
+      <p class="note">Add the model so the search can name this machine. It is saved on the equipment record.</p>
+      <input name="make" placeholder="Make" value="${esc(gear.make || "")}" />
+      <input name="model" placeholder="Model" required />
+      <input name="serial" placeholder="Serial" value="${esc(gear.serial || "")}" />
+      <input name="year" inputmode="numeric" placeholder="Year" value="${esc(gear.year ?? "")}" />
+      <button class="big" type="submit">Save model</button>
+    </form>` : ""}
+    ${offline ? `<p class="banner">Find parts needs a connection. These searches open in the browser, so they wait until this phone is online.</p>` : ""}
+    ${askModel || offline ? "" : `<form class="form" id="parts-query">
+        <input id="parts-q" name="q" placeholder="Part or material" value="${esc(query)}" />
+        <input id="parts-number" name="part_number" placeholder="Part number (optional)" />
+        <button class="ghost" type="submit">Save part number</button>
+      </form>
+      <div class="chips">${PART_TOPICS.map(([label, topic]) => `<button class="ghost" type="button" data-act="part-chip" data-q="${esc(topic)}">${label}</button>`).join("")}</div>
+      <p class="muted">Each button opens a search in the browser. Nothing is ordered from this app.</p>
+      ${links.map((site) => `<button class="tile" type="button" data-act="open-part" data-site="${site.id}" data-url="${esc(site.url)}"><strong>${esc(site.label)}</strong></button>`).join("")}`}
+    ${recent.length ? `<h2>Recent</h2><ul class="list">${recent.map((row) => `<li><div><strong>${esc(row.partNumber || row.query)}</strong>${row.partNumber && row.query ? `<p class="meta">${esc(row.query)}</p>` : ""}</div></li>`).join("")}</ul>` : ""}
+  `);
+}
+
 function maintenanceScreen(state) {
   const gear = alive(state.data.equipment);
   const types = alive(state.data.serviceTypes);
@@ -631,7 +699,17 @@ function maintenanceScreen(state) {
   return shell(state, `
     <h2>Maintenance</h2>
     <p class="note">For time on a tractor, fence, or planting, use Start work and pick Non-field work. This list is the equipment record.</p>
-    <form class="form" id="equip-form"><input name="name" placeholder="Equipment" required /><input name="notes" placeholder="Notes" /><button class="ghost" type="submit">Add equipment</button></form>
+    <form class="form" id="equip-form">
+      <input name="name" placeholder="Equipment" required />
+      <input name="make" placeholder="Make" />
+      <input name="model" placeholder="Model" />
+      <input name="serial" placeholder="Serial" />
+      <input name="year" inputmode="numeric" placeholder="Year" />
+      <input name="notes" placeholder="Notes" />
+      <button class="ghost" type="submit">Add equipment</button>
+    </form>
+    <ul class="list">${gear.map((item) => `<li><div><strong>${esc(item.name)}</strong><p class="meta">${esc([item.make, item.model, item.year, item.serial].filter(Boolean).join(" · "))}</p></div>
+      <button class="ghost" type="button" data-act="go" data-href="#/parts/${item.id}">Find parts</button></li>`).join("")}</ul>
     <form class="form" id="service-form">
       <input name="date" type="date" value="${vineyardToday(state.vineyard.timezone)}" />
       <select name="equipment_id" required><option value="">Equipment</option>${gear.map((e) => `<option value="${e.id}">${esc(e.name)}</option>`).join("")}</select>
@@ -750,6 +828,7 @@ export function renderApp(state) {
   if (route === "setup") return setupScreen(state);
   if (route === "contractors") return contractorsScreen(state);
   if (route === "maintenance") return maintenanceScreen(state);
+  if (route === "parts") return partsScreen(state);
   if (route === "settings") return settingsScreen(state);
   if (route === "bug") return bugScreen(state);
   if (route === "bugs") return bugsScreen(state);

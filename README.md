@@ -32,6 +32,10 @@ Sprays can include a recommendation number and a photo. The photo sends when the
 
 The spray pages and the watering page show the weather for the vineyard’s point near Cornville Rd. That comes from the National Weather Service: the nearest station right now, the next few hours, tomorrow, and the week, with wind and the chance of rain. The phone asks for a new reading when it has Wi-Fi, saves it, and still shows it with no service. **Updated** is Arizona time. At 100° or hotter today, a heat notice stays at the top of every screen. If this phone already allows notifications, it sends one heat alert that day and does not ask again. A manager can change the map point and the Cornville station link under **More → Color and settings**.
 
+On a block, a task, or a job in that block, one short line about that grape sits under the title. It changes between visits and still shows with no service. Counoise has no variety line that could be checked, so those blocks use the general lines. A manager adds or edits lines under **More → Blocks, tasks, chemicals**, including the author and the book or article.
+
+**More → Find parts**, and **Find parts** on an equipment row, opens a web search for fencing, irrigation, tractor parts, golf cart parts, and Gator or UTV parts. The buttons go to the browser: a general search, Tractor Supply, John Deere parts, Kubota parts, Amazon, eBay, and GolfCartParts.com. Make, model, serial, and year are stored on the equipment. A machine search fills those in. If the model is blank, the screen asks for it and saves it. The searches need a connection. Offline, the screen says so and does not pretend to open them. Recent part numbers stay on the phone.
+
 ## Sign in once
 
 The first sign-in needs Wi-Fi. After that the phone stays signed in. Row taps and logs work with no service. They send themselves when the phone is back on Wi-Fi.
@@ -108,7 +112,7 @@ In the Supabase dashboard, open **SQL Editor**. Run these files in this order, o
 4. `supabase/migrations/20261021120300_storage.sql`
 5. `supabase/migrations/20261021120400_seed.sql`
 
-That creates DA Ranch, the blocks, the ten tasks, the spray list, equipment service types, and the private `spray-photos` bucket. It does not create a login.
+That creates DA Ranch, the blocks, the ten tasks, the spray list, equipment service types, the variety quotes, and the private `spray-photos` bucket. It does not create a login.
 
 ### 2. Create Aaron’s account, then make it the developer
 

@@ -29,7 +29,8 @@ const COLUMNS = {
   watering_logs: ["id", "vineyard_id", "season_year", "block_id", "log_date", "hours", "notes", "created_by", "client_updated_at", "deleted_at"],
   weed_logs: ["id", "vineyard_id", "season_year", "block_id", "log_date", "hours", "notes", "created_by", "client_updated_at", "deleted_at"],
   harvest_samples: ["id", "vineyard_id", "season_year", "block_id", "sample_date", "rows_sampled", "brix", "ph", "ta", "notes", "created_by", "client_updated_at", "deleted_at"],
-  equipment: ["id", "vineyard_id", "name", "notes", "archived", "client_updated_at", "deleted_at"],
+  equipment: ["id", "vineyard_id", "name", "notes", "make", "model", "serial", "year", "archived", "client_updated_at", "deleted_at"],
+  variety_quotes: ["id", "vineyard_id", "variety", "text", "author", "source", "archived", "client_updated_at", "deleted_at"],
   service_types: ["id", "vineyard_id", "name", "sort_order", "archived", "client_updated_at", "deleted_at"],
   service_logs: ["id", "vineyard_id", "equipment_id", "service_type", "log_date", "hours", "notes", "created_by", "client_updated_at", "deleted_at"],
   contractors: ["id", "vineyard_id", "season_year", "person_name", "company", "description", "work_date", "hours", "task_id", "block_id", "area_id", "created_by", "client_updated_at", "deleted_at"],
@@ -52,7 +53,7 @@ export function tablesForRole(role) {
   const tables = [
     "vineyards", "areas", "blocks", "tasks", "passes", "pass_tasks", "chemicals",
     "labor_entries", "row_progress", "spray_logs", "watering_logs", "weed_logs",
-    "harvest_samples", "equipment", "service_types", "service_logs", "contractors",
+    "harvest_samples", "equipment", "service_types", "service_logs", "variety_quotes", "contractors",
     "season_notes", "memberships",
   ];
   if (role === "manager" || role === "developer") tables.push("invites", "bug_reports", "manager_requests");

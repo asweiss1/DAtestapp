@@ -873,7 +873,7 @@ begin
     'vineyards', 'profiles', 'memberships', 'invites', 'invite_wages', 'manager_requests',
     'blocks', 'tasks', 'passes', 'pass_tasks', 'chemicals',
     'labor_entries', 'row_progress', 'spray_logs', 'watering_logs', 'weed_logs',
-    'harvest_samples', 'equipment', 'service_types', 'service_logs',
+    'harvest_samples', 'equipment', 'service_types', 'service_logs', 'variety_quotes',
     'contractors', 'contractor_costs', 'wage_rates', 'season_notes'
   ]
   loop

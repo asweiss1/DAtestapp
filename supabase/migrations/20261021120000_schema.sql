@@ -414,6 +414,10 @@ create table if not exists public.equipment (
   vineyard_id uuid not null references public.vineyards (id) on delete cascade,
   name text not null,
   notes text not null default '',
+  make text not null default '',
+  model text not null default '',
+  serial text not null default '',
+  year integer,
   archived boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -421,6 +425,44 @@ create table if not exists public.equipment (
   deleted_at timestamptz,
   constraint equipment_name_chk check (char_length(btrim(name)) between 1 and 80)
 );
+
+alter table public.equipment add column if not exists make text not null default '';
+alter table public.equipment add column if not exists model text not null default '';
+alter table public.equipment add column if not exists serial text not null default '';
+alter table public.equipment add column if not exists year integer;
+alter table public.equipment drop constraint if exists equipment_make_chk;
+alter table public.equipment add constraint equipment_make_chk check (char_length(make) <= 80);
+alter table public.equipment drop constraint if exists equipment_model_chk;
+alter table public.equipment add constraint equipment_model_chk check (char_length(model) <= 80);
+alter table public.equipment drop constraint if exists equipment_serial_chk;
+alter table public.equipment add constraint equipment_serial_chk check (char_length(serial) <= 80);
+alter table public.equipment drop constraint if exists equipment_year_chk;
+alter table public.equipment add constraint equipment_year_chk
+  check (year is null or year between 1900 and 2100);
+
+-- One short line about a grape, or a general line when variety is blank.
+-- Managers can add and edit. The phone also keeps a copy for offline use.
+create table if not exists public.variety_quotes (
+  id uuid primary key default gen_random_uuid(),
+  vineyard_id uuid not null references public.vineyards (id) on delete cascade,
+  variety text not null default '',
+  text text not null,
+  author text not null,
+  source text not null,
+  archived boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  client_updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
+  constraint variety_quotes_variety_chk check (char_length(variety) <= 80),
+  constraint variety_quotes_text_chk check (char_length(btrim(text)) between 8 and 400),
+  constraint variety_quotes_author_chk check (char_length(btrim(author)) between 2 and 160),
+  constraint variety_quotes_source_chk check (char_length(btrim(source)) between 8 and 320)
+);
+create unique index if not exists variety_quotes_text_uq
+  on public.variety_quotes (vineyard_id, variety, text);
+create index if not exists variety_quotes_sync_idx
+  on public.variety_quotes (vineyard_id, updated_at);
 
 create table if not exists public.service_types (
   id uuid primary key default gen_random_uuid(),
