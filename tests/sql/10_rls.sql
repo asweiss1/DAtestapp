@@ -896,4 +896,58 @@ select 1 / case when (
 ) then 1 else 0 end;
 commit;
 
+-- Weather location is seeded for Cornville and only a manager can change it.
+select 1 / case when (
+  select latitude = 34.7183
+     and longitude = -111.9086
+     and weather_url = 'https://www.wunderground.com/weather/us/az/cornville'
+  from public.vineyards where name = 'DA Ranch'
+) then 1 else 0 end;
+
+begin;
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2', true);
+set local role authenticated;
+update public.vineyards
+  set latitude = 34.7200,
+      longitude = -111.9100,
+      weather_url = 'https://www.wunderground.com/weather/us/az/cornville',
+      client_updated_at = clock_timestamp()
+  where name = 'DA Ranch';
+select 1 / case when (
+  select latitude = 34.7200 and longitude = -111.9100
+  from public.vineyards where name = 'DA Ranch'
+) then 1 else 0 end;
+commit;
+
+begin;
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', true);
+set local role authenticated;
+update public.vineyards
+  set latitude = 1, client_updated_at = clock_timestamp()
+  where name = 'DA Ranch';
+select 1 / case when (
+  select latitude = 34.7200 from public.vineyards where name = 'DA Ranch'
+) then 1 else 0 end;
+commit;
+
+begin;
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3', true);
+set local role authenticated;
+update public.vineyards
+  set latitude = 2, client_updated_at = clock_timestamp()
+  where name = 'DA Ranch';
+select 1 / case when (
+  select latitude = 34.7200 from public.vineyards where name = 'DA Ranch'
+) then 1 else 0 end;
+commit;
+
+do $$
+begin
+  update public.vineyards set latitude = 999 where name = 'DA Ranch';
+  raise exception 'FAIL latitude out of range';
+exception
+  when check_violation then
+    null;
+end $$;
+
 select 'RLS_OK';

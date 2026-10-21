@@ -4,6 +4,9 @@ import {
   LEGACY_STORAGE_KEY,
   SUPABASE_PUBLISHABLE_KEY,
   SUPABASE_URL,
+  CORNVILLE_LAT,
+  CORNVILLE_LON,
+  DEFAULT_WEATHER_URL,
   THEME_KEY,
   TOUR_SEEN_PREFIX,
 } from "./config.js";
@@ -49,6 +52,7 @@ import {
 import { signedPhotoUrls, syncAll } from "./sync.js";
 import { tourSteps } from "./tour.js";
 import { renderApp } from "./ui.js";
+import { fetchNwsWeather, heatAlert, vineyardPoint } from "./weather.js";
 
 const KEY_BY_TABLE = {
   blocks: "blocks",
@@ -118,6 +122,8 @@ const state = {
   costRows: [],
   lastSync: null,
   pendingPaint: false,
+  weather: null,
+  heatAsk: false,
 };
 
 let db = null;
@@ -970,11 +976,13 @@ function onClick(event) {
   } else if (act === "mark-rest") {
     state.modal = { type: "confirm", text: "Mark every unfinished row complete? This does not add hours.", action: "mark-rest", block: el.dataset.block, task: el.dataset.task };
     paint();
-  } else if (act === "tab") {
+  }   else if (act === "tab") {
     state.tab = el.dataset.id;
     state.sprayId = null;
     paint();
-  } else if (act === "select-spray") {
+    if (el.dataset.id === "water" || el.dataset.id === "foliar" || el.dataset.id === "herbicide") refreshWeather();
+  } else if (act === "heat-notify") allowHeatNotes();
+  else if (act === "select-spray") {
     state.sprayId = el.dataset.id;
     paint();
   } else if (act === "spray-row") toggleSprayRow(Number(el.dataset.row));
@@ -1050,6 +1058,7 @@ function onSubmit(event) {
   if (id === "type-form") return saveServiceType(fd);
   if (id === "name-form") return saveName(fd);
   if (id === "eod-form") return saveEod(fd);
+  if (id === "weather-form") return saveWeatherPlace(fd);
   if (id === "bug-form") return saveBug(fd);
 }
 
@@ -1384,6 +1393,31 @@ function saveEod(fd) {
     edit_window_days: days,
   });
   state.notice = "End of day saved.";
+}
+
+function saveWeatherPlace(fd) {
+  if (state.role !== "manager") return;
+  const lat = Number(fd.get("latitude"));
+  const lon = Number(fd.get("longitude"));
+  const url = String(fd.get("weather_url") || "").trim();
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+    state.notice = "Latitude and longitude need to be a real map point.";
+    paint();
+    return;
+  }
+  if (url && !/^https:\/\//i.test(url)) {
+    state.notice = "The station link needs to start with https://.";
+    paint();
+    return;
+  }
+  save("vineyards", {
+    ...state.vineyard,
+    latitude: Math.round(lat * 10000) / 10000,
+    longitude: Math.round(lon * 10000) / 10000,
+    weather_url: url || DEFAULT_WEATHER_URL,
+  });
+  state.notice = "Weather location saved.";
+  refreshWeather({ force: true });
 }
 
 function saveBug(fd) {
@@ -1878,11 +1912,125 @@ async function openSession() {
     maybeLegacy();
     maybeTour();
     paint();
+    loadCachedWeather().then(() => {
+      paint();
+      refreshWeather();
+    });
     syncNow();
   } catch (error) {
     pushError(error);
     state.notice = "This phone could not open its saved records.";
     paint();
+  }
+}
+
+const WEATHER_MAX_AGE_MS = 20 * 60 * 1000;
+let weatherFlight = null;
+
+function weatherKey() {
+  return `weather:${state.vineyard?.id || "vineyard"}`;
+}
+
+async function readWeatherCache() {
+  if (db) {
+    try { return await kvGet(db, weatherKey()); } catch { return null; }
+  }
+  try {
+    const raw = localStorage.getItem(weatherKey());
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeWeatherCache(snapshot) {
+  if (db) {
+    try { await kvSet(db, weatherKey(), snapshot); } catch { /* the screen still shows this reading */ }
+    return;
+  }
+  try { localStorage.setItem(weatherKey(), JSON.stringify(snapshot)); } catch { /* private mode */ }
+}
+
+function pointMatches(snapshot) {
+  if (!snapshot) return false;
+  const point = vineyardPoint(state.vineyard);
+  return Math.abs(Number(snapshot.latitude) - point.lat) < 0.0001
+    && Math.abs(Number(snapshot.longitude) - point.lon) < 0.0001;
+}
+
+function heatNoteKey() {
+  return `daranch-heat-note:${state.vineyard?.id || "v"}:${vineyardToday(tz())}`;
+}
+
+function maybeHeatNotify() {
+  const alert = heatAlert(state.weather, tz());
+  state.heatAsk = false;
+  if (!alert || state.online === false || typeof Notification === "undefined") return;
+  if (Notification.permission === "default") {
+    state.heatAsk = true;
+    return;
+  }
+  if (Notification.permission !== "granted") return;
+  const key = heatNoteKey();
+  try {
+    if (localStorage.getItem(key) === "1") return;
+    localStorage.setItem(key, "1");
+  } catch {
+    return;
+  }
+  const title = "Heat at DA Ranch";
+  const body = `It reaches ${alert.tempF}° today. Drink water and take shade breaks.`;
+  const viaPage = () => {
+    try { new Notification(title, { body, tag: key }); } catch { /* this browser blocked the alert */ }
+  };
+  const ready = navigator.serviceWorker?.ready;
+  if (ready) {
+    ready.then((reg) => {
+      if (!reg.showNotification) return viaPage();
+      return reg.showNotification(title, { body, tag: key, renotify: false });
+    }).catch(viaPage);
+  } else viaPage();
+}
+
+async function allowHeatNotes() {
+  if (typeof Notification === "undefined" || Notification.permission !== "default") return;
+  let permission = "denied";
+  try { permission = await Notification.requestPermission(); } catch { return; }
+  if (permission === "granted") maybeHeatNotify();
+  else state.heatAsk = false;
+  paint();
+}
+
+function refreshWeather(options) {
+  if (weatherFlight) return weatherFlight;
+  weatherFlight = refreshWeatherNow(options).finally(() => { weatherFlight = null; });
+  return weatherFlight;
+}
+
+async function loadCachedWeather() {
+  if (!state.vineyard) return;
+  const cached = await readWeatherCache();
+  if (!cached || !pointMatches(cached)) return;
+  state.weather = cached;
+  maybeHeatNotify();
+}
+
+async function refreshWeatherNow({ force = false } = {}) {
+  if (!state.vineyard || state.online === false) return;
+  const point = vineyardPoint(state.vineyard);
+  const age = state.weather?.fetchedAt ? Date.now() - new Date(state.weather.fetchedAt).getTime() : Infinity;
+  if (!force && pointMatches(state.weather) && age < WEATHER_MAX_AGE_MS) {
+    maybeHeatNotify();
+    return;
+  }
+  try {
+    const snapshot = await fetchNwsWeather(point.lat, point.lon);
+    state.weather = snapshot;
+    await writeWeatherCache(snapshot);
+    maybeHeatNotify();
+    paint();
+  } catch {
+    // Keep the last saved forecast. The updated time stays on the screen.
   }
 }
 
@@ -1903,7 +2051,7 @@ function startDemo() {
   const taskId = "22222222-2222-4222-8222-222222222222";
   const sam = "66666666-6666-4666-8666-666666666666";
   state.demo = true;
-  state.online = true;
+  state.online = typeof navigator === "undefined" ? true : navigator.onLine;
   state.session = { user: { id: userId, email: "crew@da.test" } };
   state.userId = userId;
   state.profile = { id: userId, display_name: role === "manager" ? "Morgan" : role === "developer" ? "Aaron" : "Ada", theme: "sage" };
@@ -1913,7 +2061,15 @@ function startDemo() {
     timezone: "America/Phoenix",
     eod_time: "14:25:00",
     edit_window_days: 3,
+    latitude: CORNVILLE_LAT,
+    longitude: CORNVILLE_LON,
+    weather_url: DEFAULT_WEATHER_URL,
   };
+  try {
+    const raw = localStorage.getItem(`weather:${vineyardId}`);
+    const saved = raw ? JSON.parse(raw) : null;
+    if (pointMatches(saved)) state.weather = saved;
+  } catch { /* demo still fetches when it can */ }
   state.role = role;
   state.year = seasonYear("America/Phoenix");
   state.data = emptyData();
@@ -1940,7 +2096,9 @@ function startDemo() {
   }
   applyRoute();
   maybeTour();
+  maybeHeatNotify();
   paint();
+  refreshWeather();
 }
 
 async function startAuth() {
@@ -1993,6 +2151,7 @@ window.addEventListener("hashchange", () => {
   window.addEventListener("online", () => {
     state.online = true;
     syncNow();
+    refreshWeather({ force: true });
   });
   window.addEventListener("offline", () => {
     state.online = false;

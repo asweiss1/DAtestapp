@@ -1,6 +1,13 @@
 export const APP_NAME = "DA Ranch Vineyard App";
 export const APP_VERSION = "1.0.0";
 
+// Cornville, AZ. The National Weather Service calls this point Cornville.
+export const CORNVILLE_LAT = 34.7183;
+export const CORNVILLE_LON = -111.9086;
+export const DEFAULT_WEATHER_URL = "https://www.wunderground.com/weather/us/az/cornville";
+// Browsers send their own User-Agent and ignore this header. Node and other clients send it.
+export const NWS_USER_AGENT = "DA Ranch Vineyard App (github.com/asweiss1/DAtestapp)";
+
 // Publishable key: it is meant to live in the browser. The secret key must never be added here.
 export const SUPABASE_URL = "https://skpburnqszcrwuftizsw.supabase.co";
 export const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_ngxd3dy5cuJlmISX1uKI0w_YnrPgtnT";

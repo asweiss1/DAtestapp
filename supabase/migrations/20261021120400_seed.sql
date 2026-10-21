@@ -2,9 +2,15 @@
 -- 5 of 5. First vineyard, the 10 tasks, blocks, chemicals, and Non-field work.
 -- Does not create a login. After Aaron signs up, run supabase/assign-developer.sql.
 
-insert into public.vineyards (name, timezone, eod_time, edit_window_days)
-values ('DA Ranch', 'America/Phoenix', '14:25:00', 3)
-on conflict (name) do nothing;
+insert into public.vineyards (name, timezone, eod_time, edit_window_days, latitude, longitude, weather_url)
+values (
+  'DA Ranch', 'America/Phoenix', '14:25:00', 3,
+  34.7183, -111.9086, 'https://www.wunderground.com/weather/us/az/cornville'
+)
+on conflict (name) do update
+  set latitude = coalesce(public.vineyards.latitude, excluded.latitude),
+      longitude = coalesce(public.vineyards.longitude, excluded.longitude),
+      weather_url = coalesce(public.vineyards.weather_url, excluded.weather_url);
 
 do $$
 declare

@@ -30,6 +30,30 @@ create table if not exists public.vineyards (
   constraint vineyards_name_chk check (char_length(btrim(name)) between 2 and 80)
 );
 
+-- Map point for the National Weather Service, and the nearby station page.
+-- 34.7183, -111.9086 is Cornville, AZ, on the Cornville Rd side of town.
+alter table public.vineyards add column if not exists latitude numeric(7, 4);
+alter table public.vineyards add column if not exists longitude numeric(8, 4);
+alter table public.vineyards add column if not exists weather_url text;
+alter table public.vineyards drop constraint if exists vineyards_lat_chk;
+alter table public.vineyards add constraint vineyards_lat_chk
+  check (latitude is null or (latitude >= -90 and latitude <= 90));
+alter table public.vineyards drop constraint if exists vineyards_lon_chk;
+alter table public.vineyards add constraint vineyards_lon_chk
+  check (longitude is null or (longitude >= -180 and longitude <= 180));
+alter table public.vineyards drop constraint if exists vineyards_weather_url_chk;
+alter table public.vineyards add constraint vineyards_weather_url_chk
+  check (
+    weather_url is null
+    or (char_length(weather_url) between 8 and 300 and weather_url ~ '^https://')
+  );
+update public.vineyards
+  set latitude = 34.7183,
+      longitude = -111.9086,
+      weather_url = 'https://www.wunderground.com/weather/us/az/cornville'
+  where name = 'DA Ranch'
+    and latitude is null;
+
 create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   display_name text not null,

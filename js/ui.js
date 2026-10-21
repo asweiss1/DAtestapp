@@ -1,5 +1,6 @@
-import { APP_NAME, THEMES } from "./config.js";
+import { APP_NAME, CORNVILLE_LAT, CORNVILLE_LON, DEFAULT_WEATHER_URL, THEMES } from "./config.js";
 import { tourSteps } from "./tour.js";
+import { heatAlert, stationUrl, weatherLines } from "./weather.js";
 import {
   countStatus,
   elapsedSeconds,
@@ -59,6 +60,7 @@ function shell(state, body, { back = true } = {}) {
       <h1>${esc(APP_NAME)}</h1>
       <p class="sub">${esc(year)} season · ${esc(status)}</p>
     </header>
+    ${heatBanner(state)}
     ${cards && state.route !== "finish" ? cards : ""}
     <div class="wrap">
       ${state.notice ? `<p class="banner">${esc(state.notice)}</p>` : ""}
@@ -102,6 +104,32 @@ function crewCards(state) {
       </section>`;
     }).join("")}
   </div>`;
+}
+
+function heatBanner(state) {
+  const alert = heatAlert(state.weather, state.vineyard?.timezone || "America/Phoenix");
+  if (!alert) return "";
+  const ask = state.heatAsk
+    ? `<button class="ghost heat-btn" type="button" data-act="heat-notify">Notify this phone</button>`
+    : "";
+  return `<div class="heat" role="status"><strong>Heat today: ${alert.tempF}°.</strong> Take water and shade breaks.${ask}</div>`;
+}
+
+function weatherCard(state) {
+  const href = stationUrl(state.vineyard);
+  const lines = weatherLines(state.weather);
+  const link = `<a href="${esc(href)}" target="_blank" rel="noopener">Cornville station</a>`;
+  if (!lines) {
+    return `<section class="panel weather" aria-label="Weather"><p class="small">Weather loads when this phone has Wi-Fi.</p><p class="small">${link}</p></section>`;
+  }
+  const days = (lines.days || []).map((day) => `<li><span>${esc(day.name)}</span><span>${day.tempF == null ? "" : `${esc(day.tempF)}°`}</span><span>${esc(day.wind || "")}</span><span>${day.rainPercent == null ? "" : `${esc(day.rainPercent)}% rain`}</span></li>`).join("");
+  return `<section class="panel weather" aria-label="Weather">
+    <p>${esc(lines.now)}</p>
+    ${lines.hours ? `<p class="small">${esc(lines.hours)}</p>` : ""}
+    ${lines.tomorrow ? `<p class="small">${esc(lines.tomorrow)}</p>` : ""}
+    ${days ? `<ul class="forecast">${days}</ul>` : ""}
+    <p class="small">Updated ${esc(lines.updated)} · ${link}</p>
+  </section>`;
 }
 
 function legend() {
@@ -279,6 +307,7 @@ function blockScreen(state) {
       <p class="meta">Water this season on ${esc(block.name)}</p>
       ${plants ? `<p class="meta">About ${Math.round(hours * plants)} gal if ${plants} plants × 1 gal/plant/hour</p>` : ""}
       <p class="note">We talk about watering in <strong>hours</strong>. Each plant has 2 half-gallon emitters, so about <strong>1 gallon per plant per hour</strong>.</p>
+      ${weatherCard(state)}
       <form class="form" id="add-water"><input name="date" type="date" value="${vineyardToday(state.vineyard.timezone)}" required /><input name="hours" inputmode="decimal" placeholder="Hours" required /><input name="notes" placeholder="Notes" /><button class="big" type="submit">Save hours</button></form>
       <ul class="list">${water.map((w) => `<li><div><strong>${esc(w.log_date)} · ${esc(w.hours)} hrs</strong><p class="meta">${esc(w.notes || "")}</p></div><button class="danger" type="button" data-act="ask-delete" data-table="watering_logs" data-id="${w.id}">Remove</button></li>`).join("")}</ul>
     </section>`;
@@ -316,7 +345,8 @@ function sprayPanel(state, block, kind) {
   for (const c of chems) (groups[c.category] ||= []).push(c);
   const options = Object.entries(groups).map(([cat, rows]) => `<optgroup label="${esc(cat)}">${rows.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</optgroup>`).join("");
   const label = kind === "herbicide" ? "Herbicide" : "Foliar";
-  return `<p class="note">${label} is logged each pass. Start a new one when the mix or the date changes.</p>
+  return `${weatherCard(state)}
+    <p class="note">${label} is logged each pass. Start a new one when the mix or the date changes.</p>
     <form class="form" id="spray-form">
       <input type="hidden" name="kind" value="${kind}" />
       <input name="date" type="date" value="${vineyardToday(state.vineyard.timezone)}" required />
@@ -642,6 +672,14 @@ function settingsScreen(state) {
         <input name="eod_time" type="time" value="${esc(String(state.vineyard.eod_time || "14:25").slice(0, 5))}" />
         <label>Days a person can fix their own hours <input name="edit_window_days" type="number" min="0" max="30" value="${state.vineyard.edit_window_days ?? 3}" /></label>
         <button class="big" type="submit">Save</button>
+      </form>
+      <h2>Weather location</h2>
+      <p class="note">Sprays and watering use this point. DA Ranch starts at Cornville Rd. The station link opens the nearby weather page.</p>
+      <form class="form" id="weather-form">
+        <label>Latitude <input name="latitude" inputmode="decimal" value="${esc(state.vineyard.latitude ?? CORNVILLE_LAT)}" required /></label>
+        <label>Longitude <input name="longitude" inputmode="decimal" value="${esc(state.vineyard.longitude ?? CORNVILLE_LON)}" required /></label>
+        <label>Station link <input name="weather_url" type="url" value="${esc(state.vineyard.weather_url || DEFAULT_WEATHER_URL)}" /></label>
+        <button class="big" type="submit">Save location</button>
       </form>` : `<p class="muted">A manager sets the end-of-day time. Open jobs stop at ${esc(String(state.vineyard?.eod_time || "14:25").slice(0, 5))}.</p>`}
     <button class="ghost" type="button" data-act="replay-tour">Show the tour again</button>
     ${state.installEvent ? `<button class="big" type="button" data-act="install">Install on this phone</button>` : `<p class="note">On an iPhone, tap Share, then Add to Home Screen. On Android, use the browser menu and choose Install app.</p>`}

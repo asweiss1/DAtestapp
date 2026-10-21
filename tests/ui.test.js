@@ -296,3 +296,74 @@ test("nobody becomes a manager until Aaron approves the request", () => {
   assert.match(hidden, /Aaron approves managers/);
   assert.doesNotMatch(hidden, /data-act="decide-manager"/);
 });
+
+test("spray and water show weather, and heat shows on every page", () => {
+  const weather = {
+    fetchedAt: "2026-07-15T18:00:00.000Z",
+    stationName: "Cottonwood Airport",
+    current: { tempF: 104, wind: "S 10 mph", rainPercent: 10, text: "Sunny" },
+    hourly: [{ start: "2026-07-15T18:00:00-07:00", label: "11 AM", tempF: 104, wind: "S 10 mph", rainPercent: 10 }],
+    tomorrow: { tempF: 98, nightTempF: 75, wind: "E 5 mph", rainPercent: 40, text: "Sunny" },
+    daily: [{ name: "Today", start: "2026-07-15T06:00:00-07:00", tempF: 104, wind: "S 10 mph", rainPercent: 15 }],
+    nights: [],
+  };
+  const vineyard = {
+    ...base().vineyard,
+    latitude: 34.7183,
+    longitude: -111.9086,
+    weather_url: "https://www.wunderground.com/weather/us/az/cornville",
+  };
+  const water = renderApp(base({ route: "block", param: "b1", tab: "water", weather, vineyard }));
+  assert.match(water, /Now 104°/);
+  assert.match(water, /S 10 mph/);
+  assert.match(water, /10% rain/);
+  assert.match(water, /Next hours: 11 AM 104°/);
+  assert.match(water, /Tomorrow 98°/);
+  assert.match(water, /40% rain/);
+  assert.match(water, /Updated /);
+  assert.match(water, /Cornville station/);
+  assert.match(water, /https:\/\/www\.wunderground\.com\/weather\/us\/az\/cornville/);
+  assert.match(water, /Heat today: 104°/);
+  assert.match(water, /Save hours/);
+
+  const foliar = renderApp(base({ route: "block", param: "b1", tab: "foliar", weather, vineyard }));
+  assert.match(foliar, /Now 104°/);
+  assert.match(foliar, /Log pass/);
+  assert.match(foliar, /Cornville station/);
+
+  const tasks = renderApp(base({ route: "block", param: "b1", tab: "tasks", weather, vineyard }));
+  assert.match(tasks, /Heat today: 104°/);
+  assert.doesNotMatch(tasks, /Next hours/);
+
+  const home = renderApp(base({ weather, vineyard }));
+  assert.match(home, /Heat today: 104°/);
+  assert.doesNotMatch(home, /Cornville station/);
+
+  const cool = {
+    ...weather,
+    current: { ...weather.current, tempF: 99 },
+    hourly: [],
+    daily: [{ ...weather.daily[0], tempF: 99 }],
+  };
+  assert.doesNotMatch(renderApp(base({ weather: cool, vineyard })), /Heat today/);
+
+  const ask = renderApp(base({ weather, vineyard, heatAsk: true }));
+  assert.match(ask, /Notify this phone/);
+
+  const waiting = renderApp(base({ route: "block", param: "b1", tab: "water", vineyard }));
+  assert.match(waiting, /Weather loads when this phone has Wi-Fi/);
+  assert.match(waiting, /Cornville station/);
+});
+
+test("a manager edits the weather point and the station link", () => {
+  const manager = renderApp(base({ route: "settings", role: "manager" }));
+  assert.match(manager, /Weather location/);
+  assert.match(manager, /name="latitude"/);
+  assert.match(manager, /34\.7183/);
+  assert.match(manager, /-111\.9086/);
+  assert.match(manager, /wunderground\.com\/weather\/us\/az\/cornville/);
+  const employee = renderApp(base({ route: "settings", role: "employee" }));
+  assert.doesNotMatch(employee, /Weather location/);
+  const developer = renderApp(base({ route: "settings", role: "developer" }));
+  assert.doesNotMatch(developer, /Weather location/);
+});

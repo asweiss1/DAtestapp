@@ -30,6 +30,8 @@ Water is logged in hours. Each plant has two half-gallon emitters, so one hour i
 
 Sprays can include a recommendation number and a photo. The photo sends when the phone has Wi-Fi.
 
+The spray pages and the watering page show the weather for the vineyard’s point near Cornville Rd. That comes from the National Weather Service: the nearest station right now, the next few hours, tomorrow, and the week, with wind and the chance of rain. The phone asks for a new reading when it has Wi-Fi, saves it, and still shows it with no service. **Updated** is Arizona time. At 100° or hotter today, a heat notice stays at the top of every screen. If this phone already allows notifications, it sends one heat alert that day and does not ask again. A manager can change the map point and the Cornville station link under **More → Color and settings**.
+
 ## Sign in once
 
 The first sign-in needs Wi-Fi. After that the phone stays signed in. Row taps and logs work with no service. They send themselves when the phone is back on Wi-Fi.
