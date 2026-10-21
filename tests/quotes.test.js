@@ -4,14 +4,14 @@ import test from "node:test";
 import { BUNDLED_QUOTES, pickQuote, quoteCounts, varietyKey } from "../js/quotes.js";
 
 test("every bundled line has an author and a source", () => {
-  assert.equal(BUNDLED_QUOTES.length, 19);
+  assert.equal(BUNDLED_QUOTES.length, 24);
   for (const row of BUNDLED_QUOTES) {
     assert.ok(row.text.length >= 8, row.id);
     assert.ok(row.author.length >= 2, row.id);
     assert.ok(row.source.length >= 8, row.id);
   }
   assert.deepEqual(quoteCounts(), {
-    "Any block": 4,
+    "Any block": 9,
     "Cabernet Sauvignon": 3,
     Syrah: 2,
     Tempranillo: 2,
@@ -47,6 +47,13 @@ test("block spellings match the variety, and a visit stays on one line", () => {
   const cab = pickQuote(BUNDLED_QUOTES, "Cabernet", "cab");
   assert.equal(varietyKey(cab.variety), "cabernet sauvignon");
   assert.match(cab.source, /Pocket Wine Book 2023|jancisrobinson\.com/);
+
+  const zraly = BUNDLED_QUOTES.filter((row) => row.author === "Kevin Zraly");
+  assert.equal(zraly.length, 5);
+  for (const row of zraly) {
+    assert.equal(row.variety, "");
+    assert.match(row.source, /Windows on the World Complete Wine Course, twentieth-anniversary edition, Sterling Publishing, 2005, page \d+\./);
+  }
 
   const seen = new Set();
   for (let i = 0; i < 30; i += 1) seen.add(pickQuote(BUNDLED_QUOTES, "Counois", String(i)).text);

@@ -7,6 +7,7 @@ const PLINY = "Natural History, book 14, chapter 28. John Bostock and H. T. Rile
 const POCKET = "Hugh Johnson's Pocket Wine Book 2023, Margaret Rand general editor, grape varieties.";
 const JANCIS_CAB = "Jancis Robinson, \"Cabernet Sauvignon\", jancisrobinson.com/learn/grape-varieties/red/cabernet-sauvignon.";
 const JANCIS_SYRAH = "Jancis Robinson, \"Syrah\", jancisrobinson.com/learn/grape-varieties/red/syrah.";
+const ZRALY = "Windows on the World Complete Wine Course, twentieth-anniversary edition, Sterling Publishing, 2005";
 
 export const BUNDLED_QUOTES = [
   {
@@ -36,6 +37,41 @@ export const BUNDLED_QUOTES = [
     text: "in wine there is truth",
     author: "Pliny the Elder",
     source: PLINY,
+  },
+  {
+    id: "q-zraly-enjoyable",
+    variety: "",
+    text: "Wine should be an enjoyable experience.",
+    author: "Kevin Zraly",
+    source: `${ZRALY}, page 2.`,
+  },
+  {
+    id: "q-zraly-fermented",
+    variety: "",
+    text: "For the purpose of this book, wine is the fermented juice of grapes.",
+    author: "Kevin Zraly",
+    source: `${ZRALY}, page 2.`,
+  },
+  {
+    id: "q-zraly-vinifera",
+    variety: "",
+    text: "The major wine grapes come from the species Vitis vinifera.",
+    author: "Kevin Zraly",
+    source: `${ZRALY}, page 3.`,
+  },
+  {
+    id: "q-zraly-varieties",
+    variety: "",
+    text: "The main thing is to understand the major grape varieties and where they are grown in the world.",
+    author: "Kevin Zraly",
+    source: `${ZRALY}, page 15.`,
+  },
+  {
+    id: "q-zraly-beverage",
+    variety: "",
+    text: "Most French wine is meant to be consumed as a simple beverage.",
+    author: "Kevin Zraly",
+    source: `${ZRALY}, page 20.`,
   },
   {
     id: "q-hj-cabernet",

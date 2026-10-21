@@ -956,8 +956,8 @@ select 1 / case when (
     and column_name in ('make', 'model', 'serial', 'year')
 ) = 4 then 1 else 0 end;
 
-select 1 / case when (select count(*) from public.variety_quotes) = 19 then 1 else 0 end;
-select 1 / case when (select count(*) from public.variety_quotes where variety = '') = 4 then 1 else 0 end;
+select 1 / case when (select count(*) from public.variety_quotes) = 24 then 1 else 0 end;
+select 1 / case when (select count(*) from public.variety_quotes where variety = '') = 9 then 1 else 0 end;
 select 1 / case when (select count(*) from public.variety_quotes where variety = 'Cabernet Sauvignon') = 3 then 1 else 0 end;
 select 1 / case when (select count(*) from public.variety_quotes where variety = 'Syrah') = 2 then 1 else 0 end;
 select 1 / case when (select count(*) from public.variety_quotes where author = 'Jancis Robinson') = 3 then 1 else 0 end;
@@ -965,6 +965,8 @@ select 1 / case when (select count(*) from public.variety_quotes where source li
 select 1 / case when (select count(*) from public.variety_quotes where author = 'Robert Louis Stevenson') = 2 then 1 else 0 end;
 select 1 / case when (select count(*) from public.variety_quotes where author = 'Thomas Jefferson') = 1 then 1 else 0 end;
 select 1 / case when (select count(*) from public.variety_quotes where author = 'Pliny the Elder') = 1 then 1 else 0 end;
+select 1 / case when (select count(*) from public.variety_quotes where author = 'Kevin Zraly') = 5 then 1 else 0 end;
+select 1 / case when (select count(*) from public.variety_quotes where author = 'Kevin Zraly' and variety <> '') = 0 then 1 else 0 end;
 
 do $$
 begin
@@ -979,7 +981,7 @@ end $$;
 begin;
 select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', true);
 set local role authenticated;
-select 1 / case when (select count(*) from public.variety_quotes) = 19 then 1 else 0 end;
+select 1 / case when (select count(*) from public.variety_quotes) = 24 then 1 else 0 end;
 do $$
 begin
   insert into public.variety_quotes (vineyard_id, variety, text, author, source)
