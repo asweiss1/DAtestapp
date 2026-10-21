@@ -13,6 +13,7 @@ begin
     'areas', 'blocks', 'tasks', 'passes', 'pass_tasks', 'chemicals',
     'labor_entries', 'row_progress', 'spray_logs', 'watering_logs', 'weed_logs',
     'harvest_samples', 'equipment', 'service_types', 'service_logs', 'variety_quotes',
+    'wine_facts', 'variety_notes',
     'contractors', 'contractor_costs', 'wage_rates', 'bug_reports', 'season_notes'
   ]
   loop
@@ -272,6 +273,40 @@ create policy variety_quotes_insert on public.variety_quotes
 
 drop policy if exists variety_quotes_update on public.variety_quotes;
 create policy variety_quotes_update on public.variety_quotes
+  for update to authenticated
+  using ((select private.can_edit_catalog(vineyard_id)))
+  with check ((select private.can_edit_catalog(vineyard_id)));
+
+-- Chemistry facts and variety field notes. The crew can read them.
+-- A manager or the developer edits them.
+drop policy if exists wine_facts_select on public.wine_facts;
+create policy wine_facts_select on public.wine_facts
+  for select to authenticated
+  using ((select private.is_member(vineyard_id)));
+
+drop policy if exists wine_facts_insert on public.wine_facts;
+create policy wine_facts_insert on public.wine_facts
+  for insert to authenticated
+  with check ((select private.can_edit_catalog(vineyard_id)));
+
+drop policy if exists wine_facts_update on public.wine_facts;
+create policy wine_facts_update on public.wine_facts
+  for update to authenticated
+  using ((select private.can_edit_catalog(vineyard_id)))
+  with check ((select private.can_edit_catalog(vineyard_id)));
+
+drop policy if exists variety_notes_select on public.variety_notes;
+create policy variety_notes_select on public.variety_notes
+  for select to authenticated
+  using ((select private.is_member(vineyard_id)));
+
+drop policy if exists variety_notes_insert on public.variety_notes;
+create policy variety_notes_insert on public.variety_notes
+  for insert to authenticated
+  with check ((select private.can_edit_catalog(vineyard_id)));
+
+drop policy if exists variety_notes_update on public.variety_notes;
+create policy variety_notes_update on public.variety_notes
   for update to authenticated
   using ((select private.can_edit_catalog(vineyard_id)))
   with check ((select private.can_edit_catalog(vineyard_id)));

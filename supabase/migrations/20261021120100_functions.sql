@@ -874,6 +874,7 @@ begin
     'blocks', 'tasks', 'passes', 'pass_tasks', 'chemicals',
     'labor_entries', 'row_progress', 'spray_logs', 'watering_logs', 'weed_logs',
     'harvest_samples', 'equipment', 'service_types', 'service_logs', 'variety_quotes',
+    'wine_facts', 'variety_notes',
     'contractors', 'contractor_costs', 'wage_rates', 'season_notes'
   ]
   loop

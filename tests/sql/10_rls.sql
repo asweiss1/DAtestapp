@@ -968,6 +968,17 @@ select 1 / case when (select count(*) from public.variety_quotes where author = 
 select 1 / case when (select count(*) from public.variety_quotes where author = 'Kevin Zraly') = 5 then 1 else 0 end;
 select 1 / case when (select count(*) from public.variety_quotes where author = 'Kevin Zraly' and variety <> '') = 0 then 1 else 0 end;
 
+select 1 / case when (select count(*) from public.wine_facts) = 12 then 1 else 0 end;
+select 1 / case when (select count(*) from public.wine_facts where source like '%bpg.bcwgc.org%') = 10 then 1 else 0 end;
+select 1 / case when (select count(*) from public.wine_facts where source like '%390126.pdf%') = 1 then 1 else 0 end;
+select 1 / case when (select count(*) from public.wine_facts where source like '%35488.pdf%') = 1 then 1 else 0 end;
+select 1 / case when (select count(*) from public.variety_notes) = 20 then 1 else 0 end;
+select 1 / case when (select count(*) from public.variety_notes where needs_research) = 3 then 1 else 0 end;
+select 1 / case when (select count(*) from public.variety_notes where variety in ('Malvasia', 'Greco', 'Teroldego') and needs_research) = 3 then 1 else 0 end;
+select 1 / case when (select count(*) from public.variety_notes where variety = 'Syrah 525' and vigor like '%not on the certified-clone list%') = 1 then 1 else 0 end;
+select 1 / case when (select count(*) from public.variety_notes where variety = 'Syrah 471' and vigor like '%very few symptoms of decline%') = 1 then 1 else 0 end;
+select 1 / case when (select count(*) from public.variety_notes where needs_research = false and harvest not like '%does not publish a target Brix%') = 0 then 1 else 0 end;
+
 do $$
 begin
   insert into public.equipment (vineyard_id, name, year)
@@ -992,6 +1003,26 @@ exception
   when insufficient_privilege then
     null;
 end $$;
+do $$
+begin
+  insert into public.wine_facts (vineyard_id, text, source)
+  select id, 'An employee fact that should not save at all.', 'Not a published source.'
+  from public.vineyards where name = 'DA Ranch';
+  raise exception 'FAIL employee inserted a fact';
+exception
+  when insufficient_privilege then
+    null;
+end $$;
+do $$
+begin
+  insert into public.variety_notes (vineyard_id, variety, vigor)
+  select id, 'Employee grape', 'Should not save.'
+  from public.vineyards where name = 'DA Ranch';
+  raise exception 'FAIL employee inserted a note';
+exception
+  when insufficient_privilege then
+    null;
+end $$;
 commit;
 
 begin;
@@ -1001,6 +1032,14 @@ insert into public.variety_quotes (vineyard_id, variety, text, author, source)
 select id, 'Tannat', 'A manager line kept for the test.', 'Maria', 'Typed on the lists screen.'
 from public.vineyards where name = 'DA Ranch';
 select 1 / case when (select count(*) from public.variety_quotes where author = 'Maria') = 1 then 1 else 0 end;
+insert into public.wine_facts (vineyard_id, text, source)
+select id, 'A manager fact kept for the test.', 'Typed on the lists screen.'
+from public.vineyards where name = 'DA Ranch';
+insert into public.variety_notes (vineyard_id, variety, needs_research, harvest)
+select id, 'Manager grape', true, 'Filled in later.'
+from public.vineyards where name = 'DA Ranch';
+select 1 / case when (select count(*) from public.wine_facts) = 13 then 1 else 0 end;
+select 1 / case when (select count(*) from public.variety_notes where variety = 'Manager grape' and needs_research) = 1 then 1 else 0 end;
 commit;
 
 select 'RLS_OK';

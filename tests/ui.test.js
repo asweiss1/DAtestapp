@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { APP_NAME } from "../js/config.js";
+import { BUNDLED_FACTS, pickFact } from "../js/facts.js";
 import { renderApp } from "../js/ui.js";
 
 function base(overrides = {}) {
@@ -382,6 +383,72 @@ test("a block screen shows one sourced line for that variety", () => {
     flow: { step: "task", blockId: "b1", crew: {} },
   }));
   assert.match(working, /Raspberry-perfumed/);
+});
+
+test("the home card rotates one sourced fact", () => {
+  const html = renderApp(base({ factVisit: "home-fact" }));
+  const fact = pickFact(BUNDLED_FACTS, "home-fact");
+  assert.match(html, /Did you know/);
+  assert.match(html, new RegExp(fact.text.slice(0, 40).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(html, /bpg\.bcwgc\.org|ucanr\.edu/);
+});
+
+test("learn more opens the variety note and leaves ask switched off", () => {
+  const tannat = renderApp(base({ route: "learn", param: "b1", role: "employee" }));
+  assert.match(tannat, /Learn more/);
+  assert.match(tannat, /Fairly vigorous/);
+  assert.match(tannat, /does not publish a target Brix/);
+  assert.doesNotMatch(tannat, /Needs research/);
+  assert.doesNotMatch(tannat, /id="note-form"/);
+  assert.match(tannat, /data-ask-function="ask-variety"/);
+  assert.match(tannat, /<button class="big" type="button" disabled>Ask<\/button>/);
+  assert.match(tannat, /<textarea disabled/);
+
+  const block = renderApp(base({ route: "block", param: "b1" }));
+  assert.match(block, /#\/learn\/b1/);
+  assert.match(block, /Learn more/);
+
+  const malvasia = renderApp(base({
+    route: "learn",
+    param: "b1",
+    role: "manager",
+    data: {
+      ...base().data,
+      blocks: [{ id: "b1", name: "DA Malvasia", variety: "Malvasia", row_count: 3, sort_order: 1 }],
+    },
+  }));
+  assert.match(malvasia, /Needs research/);
+  assert.match(malvasia, /Malvasia Bianca/);
+  assert.match(malvasia, /id="note-form"/);
+
+  const missing = renderApp(base({
+    route: "learn",
+    param: "b1",
+    role: "developer",
+    data: {
+      ...base().data,
+      blocks: [{ id: "b1", name: "Trial", variety: "Aglianico", row_count: 3, sort_order: 1 }],
+      notes: [{ id: "n1", variety: "Merlot", needs_research: false, vigor: "Stored.", timing: "", clusters: "", pests: "", climate: "", arizona: "", harvest: "", canopy: "", sources: "A notebook." }],
+    },
+  }));
+  assert.match(missing, /Needs research/);
+  assert.match(missing, /No field synopsis is stored for Aglianico/);
+  assert.match(missing, /Not recorded yet/);
+  assert.match(missing, /id="note-form"/);
+  assert.doesNotMatch(missing, /Stored\./);
+});
+
+test("managers edit facts and the crew only reads them", () => {
+  const manager = renderApp(base({
+    route: "setup",
+    role: "manager",
+    data: { ...base().data, facts: [{ id: "f1", text: "A saved fact for the test.", source: "A notebook on the ranch." }] },
+  }));
+  assert.match(manager, /id="fact-form"/);
+  assert.match(manager, /A saved fact for the test/);
+  assert.match(manager, /data-act="edit-fact"/);
+  const employee = renderApp(base({ route: "setup", role: "employee" }));
+  assert.doesNotMatch(employee, /fact-form/);
 });
 
 test("managers edit quotes and the crew only reads them", () => {

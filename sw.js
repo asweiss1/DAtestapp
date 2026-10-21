@@ -1,4 +1,4 @@
-const CACHE = "daranch-app-v2";
+const CACHE = "daranch-app-v3";
 const ASSETS = [
   "./",
   "./index.html",
@@ -7,6 +7,9 @@ const ASSETS = [
   "./js/logic.js",
   "./js/weather.js",
   "./js/quotes.js",
+  "./js/facts.js",
+  "./js/notes.js",
+  "./js/learn.js",
   "./js/parts.js",
   "./js/idb.js",
   "./js/sync.js",

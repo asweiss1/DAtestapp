@@ -464,6 +464,63 @@ create unique index if not exists variety_quotes_text_uq
 create index if not exists variety_quotes_sync_idx
   on public.variety_quotes (vineyard_id, updated_at);
 
+-- One chemistry fact for the home card. Managers can edit the list.
+-- The phone keeps a copy for offline use.
+create table if not exists public.wine_facts (
+  id uuid primary key default gen_random_uuid(),
+  vineyard_id uuid not null references public.vineyards (id) on delete cascade,
+  text text not null,
+  source text not null,
+  archived boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  client_updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
+  constraint wine_facts_text_chk check (char_length(btrim(text)) between 12 and 420),
+  constraint wine_facts_source_chk check (char_length(btrim(source)) between 8 and 320)
+);
+create unique index if not exists wine_facts_text_uq
+  on public.wine_facts (vineyard_id, text);
+create index if not exists wine_facts_sync_idx
+  on public.wine_facts (vineyard_id, updated_at);
+
+-- One field synopsis per variety. needs_research stays true until someone
+-- has checked a real source and filled the note.
+create table if not exists public.variety_notes (
+  id uuid primary key default gen_random_uuid(),
+  vineyard_id uuid not null references public.vineyards (id) on delete cascade,
+  variety text not null,
+  needs_research boolean not null default false,
+  vigor text not null default '',
+  timing text not null default '',
+  clusters text not null default '',
+  pests text not null default '',
+  climate text not null default '',
+  arizona text not null default '',
+  harvest text not null default '',
+  canopy text not null default '',
+  sources text not null default '',
+  archived boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  client_updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
+  constraint variety_notes_variety_chk check (char_length(btrim(variety)) between 1 and 80),
+  constraint variety_notes_vigor_chk check (char_length(vigor) <= 800),
+  constraint variety_notes_timing_chk check (char_length(timing) <= 800),
+  constraint variety_notes_clusters_chk check (char_length(clusters) <= 800),
+  constraint variety_notes_pests_chk check (char_length(pests) <= 800),
+  constraint variety_notes_climate_chk check (char_length(climate) <= 800),
+  constraint variety_notes_arizona_chk check (char_length(arizona) <= 800),
+  constraint variety_notes_harvest_chk check (char_length(harvest) <= 800),
+  constraint variety_notes_canopy_chk check (char_length(canopy) <= 800),
+  constraint variety_notes_sources_chk check (char_length(sources) <= 500)
+);
+create unique index if not exists variety_notes_variety_uq
+  on public.variety_notes (vineyard_id, variety);
+create index if not exists variety_notes_sync_idx
+  on public.variety_notes (vineyard_id, updated_at);
+
 create table if not exists public.service_types (
   id uuid primary key default gen_random_uuid(),
   vineyard_id uuid not null references public.vineyards (id) on delete cascade,

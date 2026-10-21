@@ -198,12 +198,35 @@ const ALIASES = {
   "petite syrah": "petite sirah",
   seyval: "seyval blanc",
   "seyval blanc": "seyval blanc",
+  mataro: "mourvedre",
+  monastrell: "mourvedre",
+  mourvedre: "mourvedre",
+  nielluccio: "sangiovese",
+  niellucciu: "sangiovese",
+  "prugnolo gentile": "sangiovese",
+  sangiovese: "sangiovese",
 };
 
+function normalizeVariety(name) {
+  return String(name || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Full name, including a trailing clone number. "Syrah 525" stays itself.
+export function varietyFull(name) {
+  const text = normalizeVariety(name);
+  if (!text || text === "general" || text === "any") return "";
+  return ALIASES[text] || text;
+}
+
 export function varietyKey(name) {
-  let text = String(name || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  text = text.replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
-  text = text.replace(/ \d+$/, "");
+  const text = normalizeVariety(name).replace(/ \d+$/, "");
   if (!text || text === "general" || text === "any") return "";
   return ALIASES[text] || text;
 }

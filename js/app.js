@@ -50,7 +50,9 @@ import {
   addHours,
 } from "./logic.js";
 import { machineQuery, needsModel, partSearchUrl, pushPartRecent } from "./parts.js";
-import { BUNDLED_QUOTES } from "./quotes.js";
+import { BUNDLED_FACTS } from "./facts.js";
+import { BUNDLED_NOTES, NOTE_FIELDS, noteForVariety } from "./notes.js";
+import { BUNDLED_QUOTES, varietyFull } from "./quotes.js";
 import { signedPhotoUrls, syncAll } from "./sync.js";
 import { tourSteps } from "./tour.js";
 import { renderApp } from "./ui.js";
@@ -71,6 +73,8 @@ const KEY_BY_TABLE = {
   harvest_samples: "samples",
   equipment: "equipment",
   variety_quotes: "quotes",
+  wine_facts: "facts",
+  variety_notes: "notes",
   service_types: "serviceTypes",
   service_logs: "serviceLogs",
   contractors: "contractors",
@@ -90,7 +94,7 @@ function emptyData() {
   return {
     blocks: [], tasks: [], passes: [], passTasks: [], areas: [], chemicals: [],
     labor: [], rows: [], sprays: [], watering: [], weeds: [], samples: [],
-    equipment: [], serviceTypes: [], serviceLogs: [], quotes: [], contractors: [], contractorCosts: [],
+    equipment: [], serviceTypes: [], serviceLogs: [], quotes: [], facts: [], notes: [], contractors: [], contractorCosts: [],
     members: [], profiles: [], invites: [], managerRequests: [], wages: [], bugs: [], seasons: [],
   };
 }
@@ -130,6 +134,7 @@ const state = {
   partQuery: "",
   partRecent: [],
   quoteEdit: null,
+  factEdit: null,
 };
 
 let db = null;
@@ -767,9 +772,11 @@ function removeAsked(table, id) {
     harvest_samples: "samples",
     invites: "invites",
     variety_quotes: "quotes",
+    wine_facts: "facts",
+    variety_notes: "notes",
   };
   if (table === "invites" && !lead()) return;
-  if (table === "variety_quotes" && !lead()) return;
+  if ((table === "variety_quotes" || table === "wine_facts" || table === "variety_notes") && !lead()) return;
   const key = soft[table];
   const row = key ? state.data[key].find((r) => r.id === id) : null;
   if (!row) return;
@@ -789,6 +796,8 @@ function confirmText(table, id) {
   if (table === "labor_entries") return "Remove this time entry?";
   if (table === "invites") return "Remove this person from the waiting list?";
   if (table === "variety_quotes") return "Remove this quote?";
+  if (table === "wine_facts") return "Remove this fact?";
+  if (table === "variety_notes") return "Remove this variety note?";
   return "Remove this?";
 }
 
@@ -815,6 +824,7 @@ function parseHash() {
   if (head === "block" && parts[1]) return { route: "block", param: parts[1], editId: null };
   if (head === "task" && parts[2]) return { route: "task", param: `${parts[1]}/${parts[2]}`, editId: null };
   if (head === "parts") return { route: "parts", param: parts[1] || "", editId: null };
+  if (head === "learn" && parts[1]) return { route: "learn", param: parts[1], editId: null };
   const known = ["work", "finish", "export", "more", "hours", "manual", "crew", "passes", "setup", "contractors", "maintenance", "settings", "bug", "bugs", "managers"];
   if (!parts.length) return { route: "home", param: "", editId: null };
   if (known.includes(head)) return { route: head, param: "", editId: head === "manual" ? query.get("edit") : null };
@@ -1031,6 +1041,9 @@ function onClick(event) {
   else if (act === "edit-quote") {
     state.quoteEdit = el.dataset.id;
     paint();
+  } else if (act === "edit-fact") {
+    state.factEdit = el.dataset.id;
+    paint();
   } else if (act === "part-chip") {
     const gear = state.data.equipment.find((row) => row.id === state.param);
     const machine = gear && !needsModel(gear) ? machineQuery(gear) : "";
@@ -1092,6 +1105,8 @@ function onSubmit(event) {
   if (id === "equip-form") return saveEquip(fd);
   if (id === "equip-model") return saveEquipModel(fd);
   if (id === "quote-form") return saveQuote(fd);
+  if (id === "fact-form") return saveFact(fd);
+  if (id === "note-form") return saveNote(fd);
   if (id === "parts-query") return savePartNumber(fd);
   if (id === "service-form") return saveService(fd);
   if (id === "type-form") return saveServiceType(fd);
@@ -1458,6 +1473,68 @@ function saveQuote(fd) {
   });
   state.quoteEdit = null;
   state.notice = "Quote saved.";
+}
+
+function saveFact(fd) {
+  if (!lead()) return;
+  const text = String(fd.get("text") || "").trim();
+  const source = String(fd.get("source") || "").trim();
+  if (text.length < 12 || text.length > 420 || source.length < 8 || source.length > 320) {
+    state.notice = "A fact needs the sentence and where it came from.";
+    paint();
+    return;
+  }
+  const existing = state.factEdit ? (state.data.facts || []).find((row) => row.id === state.factEdit) : null;
+  save("wine_facts", {
+    id: existing?.id || crypto.randomUUID(),
+    vineyard_id: state.vineyard.id,
+    text,
+    source,
+    archived: false,
+    deleted_at: null,
+  });
+  state.factEdit = null;
+  state.notice = "Fact saved.";
+}
+
+function saveNote(fd) {
+  if (!lead()) return;
+  const variety = String(fd.get("variety") || "").trim();
+  if (variety.length < 1 || variety.length > 80) {
+    state.notice = "Type the variety name.";
+    paint();
+    return;
+  }
+  const fields = {};
+  for (const [key] of NOTE_FIELDS) {
+    const value = String(fd.get(key) || "").trim();
+    if (value.length > 800) {
+      state.notice = "Each section can be 800 characters.";
+      paint();
+      return;
+    }
+    fields[key] = value;
+  }
+  const sources = String(fd.get("sources") || "").trim();
+  if (sources.length > 500) {
+    state.notice = "The sources line can be 500 characters.";
+    paint();
+    return;
+  }
+  const block = state.data.blocks.find((row) => row.id === state.param);
+  const current = noteForVariety(state.data.notes, block?.variety || variety);
+  const same = current && varietyFull(current.variety) === varietyFull(variety) ? current : null;
+  save("variety_notes", {
+    id: same?.id || crypto.randomUUID(),
+    vineyard_id: state.vineyard.id,
+    variety,
+    needs_research: fd.get("needs_research") != null,
+    ...fields,
+    sources,
+    archived: false,
+    deleted_at: null,
+  });
+  state.notice = "Note saved.";
 }
 
 function savePartNumber(fd) {
@@ -2218,6 +2295,8 @@ function startDemo() {
   state.data = emptyData();
   state.data.blocks = [{ id: blockId, name: "DA Tannat", variety: "Tannat", row_count: 4, plant_count: 100, sort_order: 1 }];
   state.data.quotes = BUNDLED_QUOTES.map((row) => ({ ...row, vineyard_id: vineyardId }));
+  state.data.facts = BUNDLED_FACTS.map((row) => ({ ...row, vineyard_id: vineyardId }));
+  state.data.notes = BUNDLED_NOTES.map((row) => ({ ...row, vineyard_id: vineyardId }));
   state.data.equipment = [{
     id: "88888888-8888-4888-8888-888888888888",
     vineyard_id: vineyardId,

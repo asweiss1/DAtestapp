@@ -1,4 +1,7 @@
 import { APP_NAME, CORNVILLE_LAT, CORNVILLE_LON, DEFAULT_WEATHER_URL, THEMES } from "./config.js";
+import { factsToShow, factVisitKey, pickFact } from "./facts.js";
+import { ASK_VARIETY_FUNCTION } from "./learn.js";
+import { NOTE_FIELDS, noteForVariety } from "./notes.js";
 import { machineQuery, needsModel, PART_TOPICS, partSearchLinks } from "./parts.js";
 import { pickQuote, quotesToShow, quoteVisitKey } from "./quotes.js";
 import { tourSteps } from "./tour.js";
@@ -216,6 +219,7 @@ function home(state) {
   return shell(state, `
     <p class="note">${esc(banner)}</p>
     <p class="meta">You have ${esc(formatHours(mine) || "0")} hours today.</p>
+    ${factCard(state)}
     <button class="big" type="button" data-act="go" data-href="#/work">Start work</button>
     <button class="ghost" type="button" data-act="go" data-href="#/export">Export</button>
     ${blocks.map((b) => `<button class="tile" type="button" data-act="go" data-href="#/block/${b.id}">
@@ -338,6 +342,7 @@ function blockScreen(state) {
   return shell(state, `
     <h2>${esc(block.name)}</h2>
     ${blockQuote(state, block)}
+    ${block.variety ? `<button class="ghost" type="button" data-act="go" data-href="#/learn/${esc(block.id)}">Learn more</button>` : ""}
     <div class="tabs">${tabs}</div>
     ${body}
     ${lead && tab === "tasks" ? `<form class="form" id="block-meta">
@@ -617,7 +622,75 @@ function setupScreen(state) {
       ${chems.length > 20 ? `<li><div class="muted">${chems.length - 20} more are in the spray picker.</div></li>` : ""}</ul>
     </section>
     ${quoteEditor(state)}
+    ${factEditor(state)}
   `);
+}
+
+function factCard(state) {
+  const row = pickFact(factsToShow(state.data?.facts), state.factVisit || factVisitKey());
+  if (!row?.text) return "";
+  return `<section class="fact"><p class="fact-kicker">Did you know</p><p class="fact-body">${esc(row.text)}</p><p class="fact-src">${esc(row.source)}</p></section>`;
+}
+
+function factEditor(state) {
+  const stored = Array.isArray(state.data.facts) && state.data.facts.some((row) => !row.deleted_at);
+  const rows = factsToShow(state.data.facts);
+  const editing = stored ? (state.data.facts || []).find((row) => row.id === state.factEdit && !row.deleted_at) : null;
+  return `<section class="panel"><h2>Did you know</h2>
+    <p class="muted">One fact shows on the home screen. Keep the sentence and where it came from.</p>
+    <form class="form" id="fact-form">
+      <textarea name="text" placeholder="Fact" required>${esc(editing?.text || "")}</textarea>
+      <input name="source" placeholder="Source" value="${esc(editing?.source || "")}" required />
+      <button class="ghost" type="submit">${editing ? "Save fact" : "Add fact"}</button>
+    </form>
+    <ul class="list">${rows.map((row) => `<li><div><strong>${esc(row.text)}</strong><p class="meta">${esc(row.source)}</p></div>
+      ${stored ? `<span class="pair"><button class="ghost" type="button" data-act="edit-fact" data-id="${esc(row.id)}">Edit</button>
+      <button class="danger" type="button" data-act="ask-delete" data-table="wine_facts" data-id="${esc(row.id)}">Remove</button></span>` : ""}</li>`).join("")}</ul>
+  </section>`;
+}
+
+function learnScreen(state) {
+  const block = (state.data.blocks || []).find((b) => b.id === state.param);
+  if (!block) return shell(state, `<p>That block is not on this phone.</p>`);
+  const variety = String(block.variety || "").trim();
+  if (!variety) return shell(state, `<h2>${esc(block.name)}</h2><p>This block has no variety yet.</p>`);
+  const note = noteForVariety(state.data?.notes, variety);
+  const lead = state.role === "manager" || state.role === "developer";
+  const flagged = !note || note.needs_research;
+  const sections = NOTE_FIELDS.map(([key, label]) => {
+    const text = String(note?.[key] || "").trim();
+    return `<section class="panel"><h2>${esc(label)}</h2><p>${text ? esc(text) : "Not recorded yet."}</p></section>`;
+  }).join("");
+  return shell(state, `
+    <h2>Learn more</h2>
+    <p class="meta">${esc(block.name)} · ${esc(variety)}</p>
+    ${flagged ? `<p class="flag">Needs research</p>` : ""}
+    ${note ? "" : `<p class="note">No field synopsis is stored for ${esc(variety)} yet. A manager can add one after it is checked.</p>`}
+    ${sections}
+    ${note?.sources ? `<p class="meta">${esc(note.sources)}</p>` : ""}
+    ${lead ? noteEditor(note, variety) : ""}
+    <section class="panel ask-soon" data-ask-function="${esc(ASK_VARIETY_FUNCTION)}">
+      <h2>Ask a question</h2>
+      <p class="muted">Not turned on. When it is, a question will go to a server function for ${esc(note?.variety || variety)} only. This phone will not send it.</p>
+      <textarea disabled placeholder="Question about this variety"></textarea>
+      <button class="big" type="button" disabled>Ask</button>
+    </section>
+  `);
+}
+
+function noteEditor(note, variety) {
+  const checked = !note || note.needs_research ? "checked" : "";
+  const fields = NOTE_FIELDS.map(([key, label]) => `<label>${esc(label)}<textarea name="${key}">${esc(note?.[key] || "")}</textarea></label>`).join("");
+  return `<section class="panel"><h2>${note ? "Edit this note" : "Add a note"}</h2>
+    <form class="form" id="note-form">
+      <input name="variety" value="${esc(note?.variety || variety)}" required />
+      <label><input type="checkbox" name="needs_research" ${checked} /> Still needs research</label>
+      ${fields}
+      <textarea name="sources" placeholder="Sources">${esc(note?.sources || "")}</textarea>
+      <button class="ghost" type="submit">Save note</button>
+    </form>
+    ${note ? `<button class="danger" type="button" data-act="ask-delete" data-table="variety_notes" data-id="${esc(note.id)}">Remove this note</button>` : ""}
+  </section>`;
 }
 
 function quoteEditor(state) {
@@ -817,6 +890,7 @@ export function renderApp(state) {
   if (route === "work") return work(state);
   if (route === "finish") return finish(state);
   if (route === "block") return blockScreen(state);
+  if (route === "learn") return learnScreen(state);
   if (route === "task") return taskScreen(state);
   if (route === "export") return exportScreen(state);
   if (route === "more") return more(state);
