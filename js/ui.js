@@ -316,8 +316,8 @@ function blockScreen(state) {
     body = tasks.map((t) => {
       const done = countStatus(state.data.rows, state.year, block.id, t.id, "complete");
       const partial = countStatus(state.data.rows, state.year, block.id, t.id, "partial");
-      const hrs = sumTaskHours(state.data.labor, state.data.contractors, state.year, t.id, block.id);
-      return `<button class="tile" type="button" data-act="go" data-href="#/task/${block.id}/${t.id}"><span><strong>${esc(t.label)}</strong><p class="meta">${done} of ${block.row_count} complete${partial ? ` · ${partial} partial` : ""} · ${esc(formatHours(hrs) || "0")} hrs</p></span></button>`;
+      const hrs = sumTaskHours(state.data.labor, state.data.contractors, state.year, t.id, block.id, true);
+      return `<button class="tile" type="button" data-act="go" data-href="#/task/${block.id}/${t.id}"><span><strong>${esc(t.label)}</strong><p class="meta">${done} of ${block.row_count} complete${partial ? ` · ${partial} partial` : ""} · ${esc(formatHours(hrs) || "0")} hours total</p></span></button>`;
     }).join("");
   } else if (tab === "water") {
     body = `<section class="panel"><p class="stat">${esc(formatHours(hours) || "0")} hours</p>
@@ -397,13 +397,13 @@ function taskScreen(state) {
   const task = state.data.tasks.find((t) => t.id === taskId);
   if (!block || !task) return shell(state, `<p>That job is not on this phone.</p>`);
   const done = countStatus(state.data.rows, state.year, block.id, task.id, "complete");
-  const hrs = sumTaskHours(state.data.labor, state.data.contractors, state.year, task.id, block.id);
+  const hrs = sumTaskHours(state.data.labor, state.data.contractors, state.year, task.id, block.id, true);
   const samples = state.data.samples.filter((s) => !s.deleted_at && s.block_id === block.id && s.season_year === state.year);
   const harvest = task.slug === "harvest" || /harvest/i.test(task.label);
   const lead = state.role === "manager" || state.role === "developer";
   return shell(state, `
     <h2>${esc(task.label)}</h2>
-    <p class="meta">${esc(block.name)} · ${done} of ${block.row_count} complete · ${esc(formatHours(hrs) || "0")} hours this season</p>
+    <p class="meta">${esc(block.name)} · ${done} of ${block.row_count} complete · ${esc(formatHours(hrs) || "0")} hours total</p>
     ${blockQuote(state, block)}
     <p class="muted">Tap a row to start the clock. Tap again, on the last row, when you stop.</p>
     ${legend()}

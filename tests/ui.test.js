@@ -67,6 +67,28 @@ test("the app name is DA Ranch Vineyard App", () => {
   assert.match(html, /Sign in/);
 });
 
+test("a task card and its page show the crew total, not today's hours", () => {
+  const labor = [
+    { id: "l1", entry_kind: "task", task_id: "t1", block_id: "b1", user_id: "u1", season_year: 2026, work_date: "2026-10-21", hours: 1 },
+    { id: "l2", entry_kind: "task", task_id: "t1", block_id: "b1", user_id: "u2", season_year: 2026, work_date: "2026-06-01", hours: 2.5 },
+    { id: "l3", entry_kind: "task", task_id: "t1", block_id: "b1", user_id: "u1", season_year: 2025, work_date: "2025-08-01", hours: 4 },
+    { id: "l4", entry_kind: "task", task_id: "t1", block_id: "b2", user_id: "u1", season_year: 2026, work_date: "2026-07-01", hours: 9 },
+    { id: "l5", entry_kind: "pass_total", task_id: "t1", block_id: "b1", user_id: "u1", season_year: 2026, work_date: "2026-07-02", hours: 8 },
+  ];
+  const contractors = [{ id: "c1", task_id: "t1", block_id: "b1", season_year: 2024, hours: 0.5 }];
+  const data = { ...base().data, labor, contractors, wages: [{ user_id: "u1", hourly_rate: 20, effective_from: "2024-01-01" }] };
+  const list = renderApp(base({ route: "block", param: "b1", tab: "tasks", role: "employee", data }));
+  const detail = renderApp(base({ route: "task", param: "b1/t1", role: "employee", data }));
+  assert.match(list, /Leaf pulling/);
+  assert.match(list, /8 hours total/);
+  assert.match(detail, /8 hours total/);
+  assert.doesNotMatch(list, /hours today/i);
+  assert.doesNotMatch(detail, /hours today/i);
+  assert.doesNotMatch(list, /this season/);
+  assert.doesNotMatch(detail, /this season/);
+  assert.doesNotMatch(detail, /\$|wage|cost/i);
+});
+
 test("row buttons keep the three status colors", () => {
   const html = renderApp({ ...base(), route: "task", param: "b1/t1" });
   assert.match(html, /status-none/);

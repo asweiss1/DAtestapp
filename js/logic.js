@@ -557,17 +557,17 @@ function alive(rows) {
   return (rows || []).filter((r) => !r.deleted_at && !r.archived);
 }
 
-export function sumTaskHours(labor, contractors, season, taskId, blockId = null) {
+export function sumTaskHours(labor, contractors, season, taskId, blockId = null, allDates = false) {
   let hours = 0;
   for (const row of labor || []) {
-    if (row.deleted_at || row.season_year !== season) continue;
+    if (row.deleted_at || (!allDates && row.season_year !== season)) continue;
     if (row.entry_kind !== "task" && row.entry_kind !== "pass_slice") continue;
     if (row.task_id !== taskId) continue;
     if (blockId && row.block_id !== blockId) continue;
     hours += Number(row.hours) || 0;
   }
   for (const row of contractors || []) {
-    if (row.deleted_at || row.season_year !== season) continue;
+    if (row.deleted_at || (!allDates && row.season_year !== season)) continue;
     if (row.task_id !== taskId) continue;
     if (blockId && row.block_id !== blockId) continue;
     hours += Number(row.hours) || 0;
