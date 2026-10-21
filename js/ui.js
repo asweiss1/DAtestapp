@@ -4,6 +4,7 @@ import {
   elapsedSeconds,
   formatDuration,
   formatHours,
+  openCrewJobs,
   openJobFor,
   personHoursOnDay,
   rowStatus,
@@ -48,7 +49,7 @@ export function jobTitle(state, job) {
 function shell(state, body, { back = true } = {}) {
   const year = state.year;
   const status = !state.online ? "Waiting for Wi-Fi" : state.syncing ? "Syncing" : state.outbox ? "Saved on this phone" : "Synced";
-  const open = openJobFor(state.data.labor, state.userId);
+  const cards = crewCards(state);
   return `<header class="head">
       <div class="head-row">
         ${back ? `<button class="back" type="button" data-act="back">‹ Back</button>` : `<span></span>`}
@@ -57,7 +58,7 @@ function shell(state, body, { back = true } = {}) {
       <h1>${esc(APP_NAME)}</h1>
       <p class="sub">${esc(year)} season · ${esc(status)}</p>
     </header>
-    ${open && state.route !== "finish" ? jobBar(state, open) : ""}
+    ${cards && state.route !== "finish" ? cards : ""}
     <div class="wrap">
       ${state.notice ? `<p class="banner">${esc(state.notice)}</p>` : ""}
       ${state.syncError ? `<p class="banner">${esc(state.syncError)}</p>` : ""}
@@ -66,20 +67,38 @@ function shell(state, body, { back = true } = {}) {
     ${modal(state)}`;
 }
 
-function jobBar(state, job) {
-  const title = jobTitle(state, job);
-  const lunch = job.paused_at ? "Lunch in" : "Lunch out";
+function crewCards(state) {
+  const groups = openCrewJobs(state.data.labor);
+  groups.sort((a, b) => {
+    const mine = (rows) => (rows.some((row) => row.user_id === state.userId) ? 0 : 1);
+    return mine(a) - mine(b);
+  });
+  if (!groups.length) return "";
   return `<div class="wrap job-sticky" style="padding-bottom:0">
-    <section class="panel">
-      <p class="meta">${job.paused_at ? "On lunch" : "Clock is running"}</p>
-      <strong>${esc(title.task)}</strong>
-      <p class="meta">${esc(title.place)}${job.row_start ? ` · started row ${job.row_start}` : ""}</p>
-      <p class="timer" id="live-timer">${formatDuration(elapsedSeconds(job))}</p>
-      <div class="pair">
-        <button class="ghost" type="button" data-act="lunch">${lunch}</button>
-        <button class="big" type="button" data-act="go" data-href="#/finish">Done</button>
-      </div>
-    </section>
+    ${groups.map((members) => {
+      const job = members.find((row) => row.user_id === state.userId) || members.slice().sort((a, b) => String(a.started_at).localeCompare(String(b.started_at)))[0];
+      const crewJobId = job.crew_job_id || job.id;
+      const title = jobTitle(state, job);
+      const mine = members.find((row) => row.user_id === state.userId);
+      const already = new Set(members.map((row) => row.user_id));
+      (state.data.labor || []).forEach((row) => {
+        if (!row.deleted_at && row.entry_kind !== "pass_slice" && (row.crew_job_id || row.id) === crewJobId) already.add(row.user_id);
+      });
+      const others = (state.data.members || []).filter((m) => m.active !== false && !already.has(m.user_id));
+      const lunch = mine?.paused_at ? "Lunch in" : "Lunch out";
+      return `<section class="panel">
+        <p class="meta">${mine?.paused_at ? "On lunch" : mine ? "Clock is running" : "Job is running"}</p>
+        <strong>${esc(title.task)}</strong>
+        <p class="meta">${esc(title.place)}${job.row_start ? ` · started row ${job.row_start}` : ""}</p>
+        ${mine ? `<p class="timer" data-timer="${mine.id}">${formatDuration(elapsedSeconds(mine))}</p>` : ""}
+        ${members.slice().sort((a, b) => String(a.started_at).localeCompare(String(b.started_at))).map((row) => `<div class="crew-line"><span>${esc(personName(state, row.user_id))}${row.user_id === state.userId ? " · you" : ""}${row.paused_at ? " · lunch" : ""}</span><button class="ghost" type="button" data-act="crew-off" data-id="${row.id}">Off</button></div>`).join("")}
+        ${others.length ? `<p class="meta">Add person</p><div class="pair">${others.map((m) => `<button class="ghost" type="button" data-act="crew-add" data-job="${crewJobId}" data-user="${m.user_id}">${esc(personName(state, m.user_id))}</button>`).join("")}</div>` : ""}
+        <div class="pair">
+          ${mine ? `<button class="ghost" type="button" data-act="lunch">${lunch}</button>` : `<span></span>`}
+          <button class="big" type="button" data-act="crew-done" data-job="${crewJobId}">Done</button>
+        </div>
+      </section>`;
+    }).join("")}
   </div>`;
 }
 
@@ -123,7 +142,7 @@ function modal(state) {
     const title = jobTitle(state, open);
     return `<div class="modal-back"><div class="modal">
       <h2>Close the open job first?</h2>
-      <p>You are still clocked in on ${esc(title.task)}${title.place ? ` · ${esc(title.place)}` : ""}. Starting something else will ask you to close it.</p>
+      <p>You are still clocked in on ${esc(title.task)}${title.place ? ` · ${esc(title.place)}` : ""}. Your clock stops. Anyone else on that job keeps going.</p>
       <button class="big" type="button" data-act="close-then-switch">Close it, then start</button>
       <button class="ghost" type="button" data-act="dismiss">Keep this job</button>
     </div></div>`;
@@ -207,19 +226,22 @@ function passTaskIds(state, passId) {
 }
 
 function finish(state) {
-  const job = openJobFor(state.data.labor, state.userId);
+  const groups = openCrewJobs(state.data.labor);
+  const wanted = state.flow?.finishJobId;
+  const members = groups.find((rows) => (rows[0].crew_job_id || rows[0].id) === wanted)
+    || groups.find((rows) => rows.some((row) => row.user_id === state.userId))
+    || groups[0];
+  const job = members?.find((row) => row.user_id === state.userId) || members?.[0];
   if (!job) return shell(state, `<p>No clock is running.</p><button class="big" type="button" data-act="go" data-href="#/">Home</button>`);
   const title = jobTitle(state, job);
   const block = state.data.blocks.find((b) => b.id === job.block_id);
-  const crew = (state.data.members || []).filter((m) => m.active && m.user_id !== state.userId);
-  const flow = state.flow || { crew: {} };
+  const flow = state.flow || {};
   const taskIds = job.pass_id ? passTaskIds(state, job.pass_id) : [job.task_id];
+  const names = members.map((row) => personName(state, row.user_id)).join(", ");
   return shell(state, `
     <h2>Finish ${esc(title.task)}</h2>
-    <p class="meta">${esc(title.place)} · ${formatDuration(elapsedSeconds(job))}</p>
-    ${crew.length ? `<section class="panel"><h2>Who else worked?</h2><p class="muted">Each person gets the same hours. Skip this if it was just you.</p>
-      ${crew.map((m) => `<label class="check"><input type="checkbox" data-act="crew" data-id="${m.user_id}" ${flow.crew?.[m.user_id] ? "checked" : ""}/> ${esc(personName(state, m.user_id))}</label>`).join("")}
-    </section>` : ""}
+    <p class="meta">${esc(title.place)} · still on it: ${esc(names)}</p>
+    <p class="note">This stops the clock for everyone still on the job. Each person keeps the time from when they joined.</p>
     ${block ? `<section class="panel stack"><h2>Tap the last row you finished</h2>${legend()}${rowGrid(state, block, taskIds, { startRow: job.row_start, endRow: flow.rowEnd, act: "pick-end-row" })}
       <div class="pair">
         <button class="ghost" type="button" data-act="complete" data-status="partial">Partial</button>

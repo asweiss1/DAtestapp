@@ -237,6 +237,7 @@ create table if not exists public.labor_entries (
   task_id uuid references public.tasks (id),
   pass_id uuid references public.passes (id),
   pass_group_id uuid,
+  crew_job_id uuid,
   entry_kind text not null,
   row_start integer,
   row_end integer,
@@ -260,7 +261,7 @@ create table if not exists public.labor_entries (
   ),
   constraint labor_row_status_chk check (row_status is null or row_status in ('partial', 'complete')),
   constraint labor_source_chk check (source in ('taps', 'manual', 'crew', 'eod')),
-  constraint labor_reason_chk check (close_reason is null or close_reason in ('tap', 'manual', 'eod', 'switch')),
+  constraint labor_reason_chk check (close_reason is null or close_reason in ('tap', 'manual', 'eod', 'switch', 'leave')),
   constraint labor_season_chk check (season_year between 2000 and 2100),
   constraint labor_pause_chk check (pause_seconds >= 0),
   constraint labor_notes_chk check (char_length(notes) <= 2000)
@@ -269,6 +270,20 @@ create table if not exists public.labor_entries (
 create unique index if not exists labor_one_open_per_user_idx
   on public.labor_entries (vineyard_id, user_id)
   where entry_kind = 'open' and deleted_at is null;
+
+alter table public.labor_entries add column if not exists crew_job_id uuid;
+
+alter table public.labor_entries drop constraint if exists labor_reason_chk;
+alter table public.labor_entries add constraint labor_reason_chk
+  check (close_reason is null or close_reason in ('tap', 'manual', 'eod', 'switch', 'leave'));
+
+-- One interval per person per shared job. A second phone updates this row
+-- instead of inserting another copy of the same time.
+create unique index if not exists labor_one_member_per_job_idx
+  on public.labor_entries (crew_job_id, user_id)
+  where crew_job_id is not null
+    and deleted_at is null
+    and entry_kind in ('open', 'task', 'pass_total');
 
 create table if not exists public.row_progress (
   id uuid primary key default gen_random_uuid(),

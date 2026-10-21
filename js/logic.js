@@ -172,9 +172,9 @@ export function closeOpenJob({
   at,
   completion = null,
   rowEnd = null,
-  crewIds = [],
   passTaskIds = [],
   reason = "tap",
+  markProgress = true,
   uuid = () => crypto.randomUUID(),
 }) {
   const pause = effectivePauseSeconds(job, at);
@@ -182,52 +182,55 @@ export function closeOpenJob({
   const closedAt = new Date(at).toISOString();
   const endRow = rowEnd == null || rowEnd === "" ? null : Number(rowEnd);
   const status = completion || null;
+  const crewJobId = job.crew_job_id || job.id;
+  const common = {
+    vineyard_id: job.vineyard_id,
+    user_id: job.user_id,
+    logged_by: job.logged_by || job.user_id,
+    season_year: job.season_year,
+    work_date: job.work_date,
+    block_id: job.block_id || null,
+    area_id: job.area_id || null,
+    pass_id: job.pass_id || null,
+    crew_job_id: crewJobId,
+    row_start: job.row_start == null ? null : Number(job.row_start),
+    row_end: endRow,
+    row_status: status,
+    started_at: job.started_at,
+    ended_at: closedAt,
+    pause_seconds: pause,
+    paused_at: null,
+    close_reason: reason,
+    source: job.source || "taps",
+    notes: job.notes || "",
+    deleted_at: null,
+    client_updated_at: closedAt,
+  };
 
-  function pack(userId, groupId, source, keepId) {
-    const common = {
-      vineyard_id: job.vineyard_id,
-      user_id: userId,
-      logged_by: job.logged_by || job.user_id,
-      season_year: job.season_year,
-      work_date: job.work_date,
-      block_id: job.block_id || null,
-      area_id: job.area_id || null,
-      pass_id: job.pass_id || null,
-      row_start: job.row_start == null ? null : Number(job.row_start),
-      row_end: endRow,
-      row_status: status,
-      started_at: job.started_at,
-      ended_at: closedAt,
-      pause_seconds: pause,
-      paused_at: null,
-      close_reason: reason,
-      source,
-      notes: job.notes || "",
-      deleted_at: null,
-      client_updated_at: closedAt,
-    };
-    if (!job.pass_id) {
-      return [{
-        ...common,
-        id: keepId ? job.id : uuid(),
-        task_id: job.task_id,
-        pass_group_id: null,
-        entry_kind: "task",
-        hours: total,
-      }];
-    }
+  let labor;
+  if (!job.pass_id) {
+    labor = [{
+      ...common,
+      id: job.id,
+      task_id: job.task_id,
+      pass_group_id: null,
+      entry_kind: "task",
+      hours: total,
+    }];
+  } else {
     const ids = passTaskIds.slice();
     const slices = splitHours(total, ids.length || 1);
-    const rows = [{
+    const groupId = job.id;
+    labor = [{
       ...common,
-      id: keepId ? job.id : uuid(),
+      id: job.id,
       task_id: null,
       pass_group_id: groupId,
       entry_kind: "pass_total",
       hours: total,
     }];
     ids.forEach((taskId, i) => {
-      rows.push({
+      labor.push({
         ...common,
         id: uuid(),
         task_id: taskId,
@@ -236,18 +239,11 @@ export function closeOpenJob({
         hours: slices[i] ?? 0,
       });
     });
-    return rows;
-  }
-
-  const labor = pack(job.user_id, job.pass_id ? job.id : null, job.source || "taps", true);
-  for (const uid of crewIds) {
-    if (!uid || uid === job.user_id) continue;
-    labor.push(...pack(uid, job.pass_id ? uuid() : null, "crew", false));
   }
 
   const taskIds = job.pass_id ? passTaskIds.slice() : job.task_id ? [job.task_id] : [];
   const progress = [];
-  if (job.block_id && status && job.row_start != null && endRow != null) {
+  if (markProgress && job.block_id && status && job.row_start != null && endRow != null) {
     const lo = Math.min(Number(job.row_start), endRow);
     const hi = Math.max(Number(job.row_start), endRow);
     for (const taskId of taskIds) {
@@ -267,6 +263,116 @@ export function closeOpenJob({
     }
   }
   return { labor, progress, hours: total };
+}
+
+function uuidBytes(id) {
+  const hex = String(id || "").replace(/-/g, "");
+  if (!/^[0-9a-fA-F]{32}$/.test(hex)) return null;
+  const out = [];
+  for (let i = 0; i < 16; i++) out.push(parseInt(hex.slice(i * 2, i * 2 + 2), 16));
+  return out;
+}
+
+function bytesToUuid(bytes) {
+  const hex = bytes.map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+// Same id on every phone for one person on one shared job.
+export function crewMemberEntryId(crewJobId, userId) {
+  const a = uuidBytes(crewJobId);
+  const b = uuidBytes(userId);
+  if (!a || !b) return null;
+  const out = a.map((byte, i) => byte ^ b[i]);
+  out[6] = (out[6] & 0x0f) | 0x50;
+  out[8] = (out[8] & 0x3f) | 0x80;
+  return bytesToUuid(out);
+}
+
+function earlierIso(a, b) {
+  if (!a) return b || null;
+  if (!b) return a;
+  return String(a) <= String(b) ? a : b;
+}
+
+function laterIso(a, b) {
+  if (!a) return b || null;
+  if (!b) return a;
+  return String(a) >= String(b) ? a : b;
+}
+
+// Two phones may both add, check off, or end the same person. Keep one interval:
+// the earlier join and the earlier leave. A later leave does not add time.
+export function mergeCrewEntry(current, incoming) {
+  if (!current) return incoming;
+  if (!incoming) return current;
+  if (current.entry_kind === "pass_slice" || incoming.entry_kind === "pass_slice") return incoming.id === current.id ? incoming : current;
+  if (!current.crew_job_id && !incoming.crew_job_id) return incoming;
+  const started = earlierIso(current.started_at, incoming.started_at);
+  const ended = earlierIso(current.ended_at, incoming.ended_at);
+  const pause = Math.max(Number(current.pause_seconds) || 0, Number(incoming.pause_seconds) || 0);
+  const pausedAt = ended ? null : earlierIso(current.paused_at, incoming.paused_at);
+  const endOwner = !ended
+    ? (laterIso(current.client_updated_at, incoming.client_updated_at) === String(incoming.client_updated_at || "") ? incoming : current)
+    : (current.ended_at && String(current.ended_at) === String(ended) ? current : incoming);
+  let status = endOwner.row_status || null;
+  if (
+    current.ended_at && incoming.ended_at
+    && String(current.ended_at) === String(incoming.ended_at)
+    && (current.row_status === "complete" || incoming.row_status === "complete")
+  ) {
+    status = "complete";
+  }
+  return {
+    ...endOwner,
+    id: current.id,
+    vineyard_id: current.vineyard_id,
+    user_id: current.user_id,
+    crew_job_id: current.crew_job_id || incoming.crew_job_id || null,
+    started_at: started,
+    ended_at: ended,
+    pause_seconds: pause,
+    paused_at: pausedAt,
+    row_end: ended ? (endOwner.row_end ?? null) : (endOwner.row_end ?? current.row_end ?? incoming.row_end ?? null),
+    row_status: status,
+    entry_kind: ended ? (endOwner.entry_kind === "open" ? (endOwner.pass_id ? "pass_total" : "task") : endOwner.entry_kind) : "open",
+    client_updated_at: laterIso(current.client_updated_at, incoming.client_updated_at),
+  };
+}
+
+export function foldCrewLabor(rows) {
+  const out = [];
+  const index = new Map();
+  for (const row of rows || []) {
+    const key = row.crew_job_id && row.entry_kind !== "pass_slice" && !row.deleted_at
+      ? `${row.crew_job_id}:${row.user_id}`
+      : "";
+    if (!key) {
+      out.push(row);
+      continue;
+    }
+    const prev = index.get(key);
+    if (!prev) {
+      index.set(key, row);
+      out.push(row);
+      continue;
+    }
+    const merged = mergeCrewEntry(prev, row);
+    out[out.indexOf(prev)] = merged;
+    index.set(key, merged);
+  }
+  return out;
+}
+
+export function openCrewJobs(labor) {
+  const groups = new Map();
+  for (const row of labor || []) {
+    if (row.deleted_at || row.ended_at || row.entry_kind !== "open") continue;
+    const key = row.crew_job_id || row.id;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  return [...groups.values()];
 }
 
 export function progressKey(r) {

@@ -274,6 +274,9 @@ create policy labor_insert on public.labor_entries
     and (select private.is_active_member(vineyard_id, user_id))
   );
 
+-- Anyone on the crew can stop an open clock (check one person off, or end
+-- the job). Fixing a finished entry stays with that person, the person who
+-- logged it, or a manager.
 drop policy if exists labor_update on public.labor_entries;
 create policy labor_update on public.labor_entries
   for update to authenticated
@@ -282,6 +285,11 @@ create policy labor_update on public.labor_entries
     or (
       (user_id = (select auth.uid()) or logged_by = (select auth.uid()))
       and work_date >= (select private.edit_cutoff(vineyard_id))
+    )
+    or (
+      entry_kind = 'open'
+      and deleted_at is null
+      and (select private.is_member(vineyard_id))
     )
   )
   with check (
@@ -292,6 +300,7 @@ create policy labor_update on public.labor_entries
         (user_id = (select auth.uid()) or logged_by = (select auth.uid()))
         and work_date >= (select private.edit_cutoff(vineyard_id))
       )
+      or ended_at is not null
     )
   );
 

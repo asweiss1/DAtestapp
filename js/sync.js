@@ -23,7 +23,7 @@ const COLUMNS = {
   passes: ["id", "vineyard_id", "name", "archived", "client_updated_at", "deleted_at"],
   pass_tasks: ["id", "vineyard_id", "pass_id", "task_id", "sort_order", "client_updated_at"],
   chemicals: ["id", "vineyard_id", "name", "category", "sds_url", "is_system", "sort_order", "archived", "client_updated_at", "deleted_at"],
-  labor_entries: ["id", "vineyard_id", "user_id", "logged_by", "season_year", "work_date", "block_id", "area_id", "task_id", "pass_id", "pass_group_id", "entry_kind", "row_start", "row_end", "row_status", "started_at", "ended_at", "pause_seconds", "paused_at", "hours", "close_reason", "source", "notes", "client_updated_at", "deleted_at"],
+  labor_entries: ["id", "vineyard_id", "user_id", "logged_by", "season_year", "work_date", "block_id", "area_id", "task_id", "pass_id", "pass_group_id", "crew_job_id", "entry_kind", "row_start", "row_end", "row_status", "started_at", "ended_at", "pause_seconds", "paused_at", "hours", "close_reason", "source", "notes", "client_updated_at", "deleted_at"],
   row_progress: ["id", "vineyard_id", "season_year", "block_id", "task_id", "row_number", "status", "updated_by", "client_updated_at"],
   spray_logs: ["id", "vineyard_id", "season_year", "block_id", "kind", "spray_date", "chemical_id", "chemical_name", "rate", "volume", "tank", "notes", "rec_number", "photo_path", "rows_done", "created_by", "client_updated_at", "deleted_at"],
   watering_logs: ["id", "vineyard_id", "season_year", "block_id", "log_date", "hours", "notes", "created_by", "client_updated_at", "deleted_at"],

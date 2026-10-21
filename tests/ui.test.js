@@ -146,6 +146,71 @@ test("a manager can set a wage and a developer cannot see cost", () => {
   assert.doesNotMatch(devExport, /Labor cost uses/);
 });
 
+test("a shared job lists who is on it and does not copy the same hours", () => {
+  const labor = [
+    {
+      id: "job",
+      crew_job_id: "job",
+      user_id: "u1",
+      entry_kind: "open",
+      ended_at: null,
+      task_id: "t1",
+      block_id: "b1",
+      started_at: "2026-06-15T15:00:00.000Z",
+      pause_seconds: 0,
+      row_start: 1,
+    },
+    {
+      id: "nick",
+      crew_job_id: "job",
+      user_id: "u2",
+      entry_kind: "open",
+      ended_at: null,
+      task_id: "t1",
+      block_id: "b1",
+      started_at: "2026-06-15T16:00:00.000Z",
+      pause_seconds: 0,
+      row_start: 1,
+    },
+  ];
+  const data = {
+    ...base().data,
+    members: [
+      { id: "m1", user_id: "u1", role: "employee", active: true },
+      { id: "m2", user_id: "u2", role: "employee", active: true },
+      { id: "m3", user_id: "u3", role: "employee", active: true },
+    ],
+    profiles: [
+      { id: "u1", display_name: "Holly" },
+      { id: "u2", display_name: "Nick" },
+      { id: "u3", display_name: "Sam" },
+    ],
+    labor,
+  };
+  const home = renderApp(base({
+    profile: { id: "u1", display_name: "Holly", theme: "sage" },
+    data,
+  }));
+  assert.match(home, /Holly/);
+  assert.match(home, /Nick/);
+  assert.match(home, /Add person/);
+  assert.match(home, /Sam/);
+  assert.match(home, /data-act="crew-off"/);
+  assert.match(home, /data-act="crew-add"/);
+  assert.doesNotMatch(home, /Who else worked/);
+  const finish = renderApp(base({
+    route: "finish",
+    flow: { finishJobId: "job" },
+    profile: { id: "u1", display_name: "Holly", theme: "sage" },
+    data,
+  }));
+  assert.match(finish, /still on it: Holly, Nick/);
+  assert.match(finish, /Partial/);
+  assert.match(finish, /Complete/);
+  assert.doesNotMatch(finish, /Who else worked/);
+  assert.doesNotMatch(finish, /same hours/);
+});
+
 test("nobody becomes a manager until Aaron approves the request", () => {
   const managerMore = renderApp(base({
     route: "more",

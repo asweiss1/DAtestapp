@@ -77,6 +77,8 @@ body { min-height: 100vh; }
 .panel h2 { margin: 0 0 .55rem; font-size: 1.05rem; }
 .stack { display: grid; gap: .55rem; }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; }
+.crew-line { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin: .35rem 0; }
+.crew-line button { min-height: 2.8rem; padding: .4rem .8rem; }
 .big, .primary, .ghost, .danger {
   min-height: 3.4rem; border-radius: 12px; padding: .8rem 1rem; font-weight: 750; width: 100%;
 }

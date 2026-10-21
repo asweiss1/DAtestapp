@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   buildReports,
   closeOpenJob,
+  crewMemberEntryId,
+  mergeCrewEntry,
   editCutoffDate,
   eodCloseInstant,
   hoursBetween,
@@ -42,9 +44,9 @@ test("split hours add back to the total", () => {
   assert.equal(slices.length, 3);
 });
 
-test("closing a pass splits hours and gives each crew member their own group", () => {
+test("closing a pass splits that person's hours across the tasks", () => {
   const job = {
-    id: "job1",
+    id: "11111111-1111-4111-8111-111111111111",
     vineyard_id: "v",
     user_id: "u1",
     logged_by: "u1",
@@ -53,6 +55,7 @@ test("closing a pass splits hours and gives each crew member their own group", (
     block_id: "b",
     task_id: null,
     pass_id: "p",
+    crew_job_id: "11111111-1111-4111-8111-111111111111",
     entry_kind: "open",
     row_start: 1,
     started_at: "2026-06-15T15:00:00.000Z",
@@ -66,19 +69,123 @@ test("closing a pass splits hours and gives each crew member their own group", (
     at: "2026-06-15T17:00:00.000Z",
     completion: "complete",
     rowEnd: 2,
-    crewIds: ["u2"],
     passTaskIds: ["t1", "t2"],
     reason: "tap",
     uuid: () => `id-${n++}`,
   });
-  const owner = result.labor.filter((row) => row.user_id === "u1");
-  const total = owner.find((row) => row.entry_kind === "pass_total");
-  const slices = owner.filter((row) => row.entry_kind === "pass_slice");
+  const total = result.labor.find((row) => row.entry_kind === "pass_total");
+  const slices = result.labor.filter((row) => row.entry_kind === "pass_slice");
   assert.equal(Number(slices.reduce((sum, row) => sum + row.hours, 0).toFixed(3)), total.hours);
-  assert.equal(total.pass_group_id, "job1");
-  const crewGroup = result.labor.find((row) => row.user_id === "u2").pass_group_id;
-  assert.notEqual(crewGroup, total.pass_group_id);
+  assert.equal(total.pass_group_id, job.id);
+  assert.equal(total.hours, 2);
   assert.equal(result.progress.length, 4);
+});
+
+test("each person on a shared job keeps their own join-to-leave hours", () => {
+  const holly = closeOpenJob({
+    job: {
+      id: "11111111-1111-4111-8111-111111111111",
+      crew_job_id: "11111111-1111-4111-8111-111111111111",
+      vineyard_id: "v",
+      user_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+      logged_by: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+      season_year: 2026,
+      work_date: "2026-06-15",
+      block_id: "b",
+      task_id: "t",
+      entry_kind: "open",
+      row_start: 1,
+      started_at: "2026-06-15T15:00:00.000Z",
+      pause_seconds: 0,
+      source: "taps",
+      notes: "",
+    },
+    at: "2026-06-15T17:00:00.000Z",
+    completion: "complete",
+    rowEnd: 4,
+    markProgress: true,
+    reason: "tap",
+    uuid: () => "progress-1",
+  });
+  const nickId = crewMemberEntryId("11111111-1111-4111-8111-111111111111", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2");
+  const nick = closeOpenJob({
+    job: {
+      id: nickId,
+      crew_job_id: "11111111-1111-4111-8111-111111111111",
+      vineyard_id: "v",
+      user_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2",
+      logged_by: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+      season_year: 2026,
+      work_date: "2026-06-15",
+      block_id: "b",
+      task_id: "t",
+      entry_kind: "open",
+      row_start: 1,
+      started_at: "2026-06-15T16:00:00.000Z",
+      pause_seconds: 0,
+      paused_at: null,
+      source: "crew",
+      notes: "",
+    },
+    at: "2026-06-15T17:00:00.000Z",
+    reason: "leave",
+    markProgress: false,
+    uuid: () => "unused",
+  });
+  assert.equal(holly.hours, 2);
+  assert.equal(nick.hours, 1);
+  assert.equal(nick.progress.length, 0);
+  assert.equal(holly.labor[0].user_id === nick.labor[0].user_id, false);
+  assert.equal(crewMemberEntryId("11111111-1111-4111-8111-111111111111", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2"), nickId);
+});
+
+test("the earlier leave wins when two phones sync the same person", () => {
+  const job = "11111111-1111-4111-8111-111111111111";
+  const user = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2";
+  const closed = {
+    id: crewMemberEntryId(job, user),
+    crew_job_id: job,
+    user_id: user,
+    vineyard_id: "v",
+    entry_kind: "task",
+    started_at: "2026-06-15T16:00:00.000Z",
+    ended_at: "2026-06-15T17:00:00.000Z",
+    pause_seconds: 600,
+    paused_at: null,
+    row_status: "partial",
+    row_end: 3,
+    client_updated_at: "2026-06-15T17:00:00.000Z",
+  };
+  const stillOpen = {
+    ...closed,
+    entry_kind: "open",
+    ended_at: null,
+    pause_seconds: 0,
+    row_status: null,
+    row_end: null,
+    client_updated_at: "2026-06-15T18:00:00.000Z",
+  };
+  const kept = mergeCrewEntry(closed, stillOpen);
+  assert.equal(kept.ended_at, "2026-06-15T17:00:00.000Z");
+  assert.equal(kept.started_at, "2026-06-15T16:00:00.000Z");
+  assert.equal(kept.pause_seconds, 600);
+  assert.equal(kept.row_status, "partial");
+  const laterLeave = mergeCrewEntry(closed, {
+    ...closed,
+    ended_at: "2026-06-15T18:00:00.000Z",
+    row_status: "complete",
+    row_end: 8,
+    client_updated_at: "2026-06-15T18:00:00.000Z",
+  });
+  assert.equal(laterLeave.ended_at, "2026-06-15T17:00:00.000Z");
+  assert.equal(laterLeave.row_end, 3);
+  const earlierJoin = mergeCrewEntry(stillOpen, {
+    ...stillOpen,
+    started_at: "2026-06-15T15:30:00.000Z",
+    client_updated_at: "2026-06-15T15:30:00.000Z",
+  });
+  assert.equal(earlierJoin.started_at, "2026-06-15T15:30:00.000Z");
+  assert.equal(earlierJoin.ended_at, null);
 });
 
 test("a finished row stays finished unless a lead allows the change", () => {

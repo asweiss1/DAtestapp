@@ -26,6 +26,8 @@ import {
   canEditLabor,
   closeOpenJob,
   combineDateAndTime,
+  crewMemberEntryId,
+  foldCrewLabor,
   editCutoffDate,
   elapsedSeconds,
   formatDuration,
@@ -322,6 +324,15 @@ async function refreshPhotos() {
   }
 }
 
+async function dedupeLabor(rows) {
+  const folded = foldCrewLabor(rows);
+  const keep = new Set(folded.map((row) => row.id));
+  for (const row of rows) {
+    if (!keep.has(row.id)) await deleteRecord(db, "labor_entries", row.id);
+  }
+  return folded;
+}
+
 async function dedupeProgress(rows) {
   const best = new Map();
   for (const row of rows) {
@@ -346,6 +357,7 @@ async function hydrate() {
     if (key) data[key].push(row.record);
   }
   data.rows = await dedupeProgress(data.rows);
+  data.labor = await dedupeLabor(data.labor);
   state.data = data;
   const mine = data.members.filter((m) => m.user_id === state.userId && m.active !== false);
   const saved = await kvGet(db, "activeVineyard");
@@ -397,21 +409,29 @@ function passTaskIds(passId) {
     .map((pt) => pt.task_id);
 }
 
-function finishJob(job, { at, completion, rowEnd, reason, crewIds, paintNow = true }) {
+function finishJob(job, { at, completion, rowEnd, reason, markProgress = true, paintNow = true }) {
   const result = closeOpenJob({
     job,
     at,
     completion: completion || null,
     rowEnd: rowEnd == null || rowEnd === "" ? null : Number(rowEnd),
-    crewIds: crewIds || [],
     passTaskIds: job.pass_id ? passTaskIds(job.pass_id) : [],
     reason,
+    markProgress,
   });
   for (const row of result.labor) save("labor_entries", row, { paintNow: false });
   const allow = state.role === "manager" || state.role === "developer";
   const merged = mergeProgress(state.data.rows, result.progress, { allowDowngrade: allow });
   for (const row of merged) save("row_progress", row, { paintNow: false });
   if (paintNow) paint();
+}
+
+function personLabel(userId) {
+  return state.data.profiles.find((p) => p.id === userId)?.display_name || "That person";
+}
+
+function openCrew(crewJobId) {
+  return state.data.labor.filter((row) => !row.deleted_at && row.entry_kind === "open" && !row.ended_at && (row.crew_job_id || row.id) === crewJobId);
 }
 
 function beginJob(next) {
@@ -421,8 +441,9 @@ function beginJob(next) {
     return;
   }
   const now = new Date().toISOString();
+  const id = crypto.randomUUID();
   save("labor_entries", {
-    id: crypto.randomUUID(),
+    id,
     vineyard_id: state.vineyard.id,
     user_id: state.userId,
     logged_by: state.userId,
@@ -433,6 +454,7 @@ function beginJob(next) {
     task_id: next.passId ? null : (next.taskId || null),
     pass_id: next.passId || null,
     pass_group_id: null,
+    crew_job_id: id,
     entry_kind: "open",
     row_start: next.rowStart == null ? null : Number(next.rowStart),
     row_end: null,
@@ -469,7 +491,6 @@ function autoclose() {
       completion: item.job.row_start ? "partial" : null,
       rowEnd: item.job.row_start,
       reason: "eod",
-      crewIds: [],
       paintNow: false,
     });
   }
@@ -492,7 +513,10 @@ function lunch() {
 }
 
 function complete(status) {
-  const job = openJobFor(state.data.labor, state.userId);
+  const mine = openJobFor(state.data.labor, state.userId);
+  const crewJobId = state.flow?.finishJobId || (mine ? (mine.crew_job_id || mine.id) : null);
+  const members = crewJobId ? openCrew(crewJobId) : [];
+  const job = members[0];
   if (!job) {
     location.hash = "#/";
     return;
@@ -502,28 +526,99 @@ function complete(status) {
     paint();
     return;
   }
-  const crew = Object.entries(state.flow?.crew || {}).filter(([, on]) => on).map(([id]) => id);
-  const next = state.flow?.after || null;
-  finishJob(job, {
-    at: new Date().toISOString(),
-    completion: status || null,
-    rowEnd: job.block_id ? state.flow.rowEnd : null,
-    reason: next ? "switch" : "tap",
-    crewIds: crew,
-    paintNow: false,
+  const at = new Date().toISOString();
+  const rowEnd = job.block_id ? state.flow.rowEnd : null;
+  members.forEach((member, index) => {
+    finishJob(member, {
+      at,
+      completion: status || null,
+      rowEnd,
+      reason: "tap",
+      markProgress: index === 0,
+      paintNow: false,
+    });
   });
   state.flow = { step: "place", crew: {} };
   state.modal = null;
-  if (next) beginJob(next);
-  else if ((location.hash || "#/") !== "#/") location.hash = "#/";
-  else paint();
+  state.pendingNotice = members.length > 1 ? "The job is finished. Each person kept their own time." : "";
+  if ((location.hash || "#/") !== "#/") location.hash = "#/";
+  else {
+    state.notice = state.pendingNotice;
+    state.pendingNotice = "";
+    paint();
+  }
+}
+
+function addCrew(crewJobId, userId) {
+  const anchor = state.data.labor.find((row) => !row.deleted_at && row.entry_kind !== "pass_slice" && (row.crew_job_id || row.id) === crewJobId);
+  if (!anchor || !userId) return;
+  const name = personLabel(userId);
+  if (openJobFor(state.data.labor, userId)) {
+    state.notice = `${name} is already clocked in.`;
+    paint();
+    return;
+  }
+  const prior = state.data.labor.find((row) => !row.deleted_at && row.entry_kind !== "pass_slice" && row.crew_job_id === (anchor.crew_job_id || anchor.id) && row.user_id === userId);
+  if (prior) {
+    state.notice = `${name} already has time on this job.`;
+    paint();
+    return;
+  }
+  const now = new Date().toISOString();
+  const id = crewMemberEntryId(anchor.crew_job_id || anchor.id, userId) || crypto.randomUUID();
+  save("labor_entries", {
+    id,
+    vineyard_id: anchor.vineyard_id,
+    user_id: userId,
+    logged_by: state.userId,
+    season_year: seasonYear(tz()),
+    work_date: vineyardToday(tz()),
+    block_id: anchor.block_id || null,
+    area_id: anchor.area_id || null,
+    task_id: anchor.task_id || null,
+    pass_id: anchor.pass_id || null,
+    pass_group_id: null,
+    crew_job_id: anchor.crew_job_id || anchor.id,
+    entry_kind: "open",
+    row_start: anchor.row_start == null ? null : Number(anchor.row_start),
+    row_end: null,
+    row_status: null,
+    started_at: now,
+    ended_at: null,
+    pause_seconds: 0,
+    paused_at: null,
+    hours: null,
+    close_reason: null,
+    source: userId === state.userId ? "taps" : "crew",
+    notes: "",
+    deleted_at: null,
+  }, { paintNow: false });
+  state.notice = `${name} joined. Their clock starts now.`;
+  paint();
+}
+
+function leaveCrew(entryId) {
+  const job = state.data.labor.find((row) => row.id === entryId && row.entry_kind === "open" && !row.deleted_at && !row.ended_at);
+  if (!job) return;
+  const name = personLabel(job.user_id);
+  finishJob(job, {
+    at: new Date().toISOString(),
+    completion: null,
+    rowEnd: null,
+    reason: "leave",
+    markProgress: false,
+    paintNow: false,
+  });
+  state.notice = `${name} is off the job. Their time stopped.`;
+  paint();
 }
 
 function onTaskRow(row) {
   const [blockId, taskId] = String(state.param || "").split("/");
   const open = openJobFor(state.data.labor, state.userId);
-  if (open && open.block_id === blockId && open.task_id === taskId && !open.pass_id) {
-    state.flow = { ...(state.flow || {}), rowEnd: row, crew: state.flow?.crew || {} };
+  const shared = state.data.labor.find((entry) => !entry.deleted_at && entry.entry_kind === "open" && !entry.ended_at && entry.block_id === blockId && entry.task_id === taskId && !entry.pass_id);
+  if (shared && (!open || (open.block_id === blockId && open.task_id === taskId && !open.pass_id))) {
+    state.flow = { ...(state.flow || {}), rowEnd: row, finishJobId: shared.crew_job_id || shared.id };
     location.hash = "#/finish";
     return;
   }
@@ -803,9 +898,28 @@ function onClick(event) {
     paint();
   } else if (act === "task-row") onTaskRow(Number(el.dataset.row));
   else if (act === "complete") complete(el.dataset.status || "");
-  else if (act === "close-then-switch") {
-    state.modal = null;
+  else if (act === "crew-add") addCrew(el.dataset.job, el.dataset.user);
+  else if (act === "crew-off") leaveCrew(el.dataset.id);
+  else if (act === "crew-done") {
+    state.flow = { ...(state.flow || {}), finishJobId: el.dataset.job, rowEnd: null };
     location.hash = "#/finish";
+  } else if (act === "close-then-switch") {
+    const mine = openJobFor(state.data.labor, state.userId);
+    const next = state.flow?.after || null;
+    state.modal = null;
+    if (mine) {
+      finishJob(mine, {
+        at: new Date().toISOString(),
+        completion: null,
+        rowEnd: null,
+        reason: "switch",
+        markProgress: false,
+        paintNow: false,
+      });
+    }
+    state.flow = { step: "place", crew: {} };
+    if (next) beginJob(next);
+    else paint();
   } else if (act === "dismiss") {
     state.modal = null;
     if (state.flow) state.flow.after = null;
@@ -865,10 +979,6 @@ function onClick(event) {
 function onChange(event) {
   const el = event.target.closest?.("[data-act]");
   if (!el) return;
-  if (el.dataset.act === "crew") {
-    state.flow = state.flow || { crew: {} };
-    state.flow.crew = { ...(state.flow.crew || {}), [el.dataset.id]: el.checked };
-  }
   if (el.dataset.act === "year") {
     const year = Number(el.value);
     if (year >= 2000 && year <= 2100) {
@@ -1723,10 +1833,8 @@ function startDemo() {
   state.data.areas = [{ id: "33333333-3333-4333-8333-333333333333", name: "Non-field work", kind: "non_field", is_system: true, sort_order: 0 }];
   state.data.members = [{ id: "m1", user_id: userId, vineyard_id: vineyardId, role, active: true }];
   state.data.profiles = [state.profile];
-  if (role === "manager" || role === "developer") {
-    state.data.members.push({ id: "m2", user_id: sam, vineyard_id: vineyardId, role: "employee", active: true });
-    state.data.profiles.push({ id: sam, display_name: "Sam", theme: "sage" });
-  }
+  state.data.members.push({ id: "m2", user_id: sam, vineyard_id: vineyardId, role: "employee", active: true });
+  state.data.profiles.push({ id: sam, display_name: "Sam", theme: "sage" });
   if (role === "manager") {
     state.data.wages = [{ id: "w1", user_id: sam, vineyard_id: vineyardId, hourly_rate: 18, effective_from: "2026-01-01" }];
   }
@@ -1786,11 +1894,12 @@ function boot() {
       if (state.pendingPaint && !userIsTyping()) paint();
     }, 30);
   });
-  window.addEventListener("hashchange", () => {
-    state.notice = "";
-    applyRoute();
-    paint();
-  });
+window.addEventListener("hashchange", () => {
+  applyRoute();
+  state.notice = state.pendingNotice || "";
+  state.pendingNotice = "";
+  paint();
+});
   window.addEventListener("online", () => {
     state.online = true;
     syncNow();
@@ -1807,9 +1916,10 @@ function boot() {
   window.addEventListener("error", (event) => pushError(event.message));
   window.addEventListener("unhandledrejection", (event) => pushError(event.reason));
   setInterval(() => {
-    const el = document.getElementById("live-timer");
-    const job = openJobFor(state.data.labor, state.userId);
-    if (el && job) el.textContent = formatDuration(elapsedSeconds(job));
+    document.querySelectorAll("[data-timer]").forEach((el) => {
+      const job = state.data.labor.find((row) => row.id === el.dataset.timer);
+      if (job) el.textContent = formatDuration(elapsedSeconds(job));
+    });
   }, 1000);
   setInterval(autoclose, 30000);
   setInterval(() => {

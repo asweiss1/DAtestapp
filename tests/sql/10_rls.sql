@@ -579,4 +579,118 @@ exception
 end $$;
 commit;
 
+-- A shared job gives each person their own clock. The earlier leave wins,
+-- a second insert does not copy the time, and any crew member can stop an open clock.
+begin;
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', true);
+set local role authenticated;
+insert into public.labor_entries (
+  id, vineyard_id, user_id, logged_by, season_year, work_date, block_id, task_id,
+  crew_job_id, entry_kind, row_start, started_at, source
+)
+select '11111111-1111-4111-8111-111111111111', vineyard, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 2026, today, block, task,
+       '11111111-1111-4111-8111-111111111111', 'open', 2,
+       (today::timestamp + time '08:00') at time zone 'America/Phoenix', 'taps'
+from fix;
+insert into public.labor_entries (
+  id, vineyard_id, user_id, logged_by, season_year, work_date, block_id, task_id,
+  crew_job_id, entry_kind, row_start, started_at, pause_seconds, source
+)
+select '22222222-2222-4222-8222-222222222222', vineyard, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2',
+       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 2026, today, block, task,
+       '11111111-1111-4111-8111-111111111111', 'open', 2,
+       (today::timestamp + time '09:00') at time zone 'America/Phoenix', 600, 'crew'
+from fix;
+select 1 / case when (
+  select count(*) from public.labor_entries
+  where crew_job_id = '11111111-1111-4111-8111-111111111111' and entry_kind = 'open'
+) = 2 then 1 else 0 end;
+commit;
+
+begin;
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3', true);
+set local role authenticated;
+update public.labor_entries
+  set ended_at = (select (today::timestamp + time '10:00') at time zone 'America/Phoenix' from fix),
+      close_reason = 'leave',
+      client_updated_at = clock_timestamp()
+  where id = '22222222-2222-4222-8222-222222222222';
+select 1 / case when (
+  select hours from public.labor_entries where id = '22222222-2222-4222-8222-222222222222'
+) = 0.833 then 1 else 0 end;
+select 1 / case when (
+  select entry_kind from public.labor_entries where id = '11111111-1111-4111-8111-111111111111'
+) = 'open' then 1 else 0 end;
+commit;
+
+begin;
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2', true);
+set local role authenticated;
+update public.labor_entries
+  set ended_at = (select (today::timestamp + time '12:00') at time zone 'America/Phoenix' from fix),
+      client_updated_at = clock_timestamp()
+  where id = '22222222-2222-4222-8222-222222222222';
+update public.labor_entries
+  set ended_at = null,
+      entry_kind = 'open',
+      client_updated_at = clock_timestamp()
+  where id = '22222222-2222-4222-8222-222222222222';
+select 1 / case when (
+  select ended_at = (today::timestamp + time '10:00') at time zone 'America/Phoenix'
+  from public.labor_entries le, fix
+  where le.id = '22222222-2222-4222-8222-222222222222'
+) then 1 else 0 end;
+select 1 / case when (
+  select hours from public.labor_entries where id = '22222222-2222-4222-8222-222222222222'
+) = 0.833 then 1 else 0 end;
+commit;
+
+begin;
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', true);
+set local role authenticated;
+insert into public.labor_entries (
+  id, vineyard_id, user_id, logged_by, season_year, work_date, block_id, task_id,
+  crew_job_id, entry_kind, row_start, started_at, pause_seconds, source
+)
+select '33333333-3333-4333-8333-333333333333', vineyard, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2',
+       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 2026, today, block, task,
+       '11111111-1111-4111-8111-111111111111', 'open', 2,
+       (today::timestamp + time '08:30') at time zone 'America/Phoenix', 0, 'crew'
+from fix;
+select 1 / case when (
+  select count(*) from public.labor_entries
+  where user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2'
+    and crew_job_id = '11111111-1111-4111-8111-111111111111'
+    and entry_kind <> 'pass_slice'
+) = 1 then 1 else 0 end;
+select 1 / case when (
+  select started_at = (today::timestamp + time '08:30') at time zone 'America/Phoenix'
+     and hours = 1.333
+  from public.labor_entries le, fix
+  where le.id = '22222222-2222-4222-8222-222222222222'
+) then 1 else 0 end;
+commit;
+
+begin;
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa5', true);
+set local role authenticated;
+update public.labor_entries
+  set ended_at = (select (today::timestamp + time '11:00') at time zone 'America/Phoenix' from fix),
+      row_end = 4,
+      row_status = 'complete',
+      close_reason = 'tap',
+      client_updated_at = clock_timestamp()
+  where id = '11111111-1111-4111-8111-111111111111';
+select 1 / case when (
+  select entry_kind = 'task' and row_status = 'complete'
+  from public.labor_entries where id = '11111111-1111-4111-8111-111111111111'
+) then 1 else 0 end;
+select 1 / case when (
+  select ended_at = (today::timestamp + time '10:00') at time zone 'America/Phoenix'
+  from public.labor_entries le, fix
+  where le.id = '22222222-2222-4222-8222-222222222222'
+) then 1 else 0 end;
+commit;
+
 select 'RLS_OK';

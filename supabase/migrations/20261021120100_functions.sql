@@ -885,6 +885,122 @@ begin
   end loop;
 end $$;
 
+-- Shared job: one interval per person. Earliest join and earliest leave win,
+-- so a phone that still shows the clock running cannot erase a stop, and a
+-- later stop cannot stretch the hours. A second insert for the same person
+-- is folded into the first row.
+create or replace function private.merge_crew_time()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  existing public.labor_entries;
+  v_start timestamptz;
+  v_end timestamptz;
+  v_pause integer;
+  v_status text;
+  v_end_row integer;
+  v_reason text;
+  v_kind text;
+begin
+  if new.crew_job_id is null or new.entry_kind = 'pass_slice' then
+    return new;
+  end if;
+  if new.deleted_at is not null then
+    return new;
+  end if;
+
+  if tg_op = 'INSERT' then
+    select * into existing
+    from public.labor_entries
+    where crew_job_id = new.crew_job_id
+      and user_id = new.user_id
+      and deleted_at is null
+      and entry_kind in ('open', 'task', 'pass_total')
+      and id is distinct from new.id
+    limit 1;
+    if existing.id is null then
+      return new;
+    end if;
+    v_start := least(existing.started_at, new.started_at);
+    v_end := least(existing.ended_at, new.ended_at);
+    v_pause := greatest(coalesce(existing.pause_seconds, 0), coalesce(new.pause_seconds, 0));
+    if v_end is not null and existing.ended_at is not distinct from v_end then
+      v_status := existing.row_status;
+      v_end_row := existing.row_end;
+      v_reason := existing.close_reason;
+      v_kind := existing.entry_kind;
+    else
+      v_status := new.row_status;
+      v_end_row := new.row_end;
+      v_reason := new.close_reason;
+      v_kind := new.entry_kind;
+    end if;
+    if existing.ended_at is not null
+       and new.ended_at is not null
+       and existing.ended_at = new.ended_at
+       and (existing.row_status = 'complete' or new.row_status = 'complete') then
+      v_status := 'complete';
+    end if;
+    update public.labor_entries
+      set started_at = v_start,
+          ended_at = v_end,
+          pause_seconds = v_pause,
+          paused_at = case when v_end is null then least(existing.paused_at, new.paused_at) else null end,
+          row_status = v_status,
+          row_end = v_end_row,
+          close_reason = v_reason,
+          entry_kind = case when v_end is null then 'open' else v_kind end,
+          client_updated_at = greatest(existing.client_updated_at, coalesce(new.client_updated_at, existing.client_updated_at))
+      where id = existing.id;
+    return null;
+  end if;
+
+  v_start := least(old.started_at, new.started_at);
+  v_end := least(old.ended_at, new.ended_at);
+  v_pause := greatest(coalesce(old.pause_seconds, 0), coalesce(new.pause_seconds, 0));
+  if v_end is not null and old.ended_at is not distinct from v_end and (new.ended_at is null or old.ended_at <= new.ended_at) then
+    new.row_status := old.row_status;
+    new.row_end := old.row_end;
+    new.close_reason := old.close_reason;
+    if old.entry_kind <> 'open' then
+      new.entry_kind := old.entry_kind;
+    end if;
+  end if;
+  if old.ended_at is not null
+     and new.ended_at is not null
+     and old.ended_at = new.ended_at
+     and (old.row_status = 'complete' or new.row_status = 'complete') then
+    new.row_status := 'complete';
+  end if;
+  new.started_at := v_start;
+  new.ended_at := v_end;
+  new.pause_seconds := v_pause;
+  new.paused_at := case when v_end is null then least(old.paused_at, new.paused_at) else null end;
+  if v_end is null then
+    new.entry_kind := 'open';
+  end if;
+
+  if old.client_updated_at is not null
+     and (new.client_updated_at is null or new.client_updated_at < old.client_updated_at) then
+    if v_end is not distinct from old.ended_at
+       and v_start is not distinct from old.started_at
+       and v_pause = coalesce(old.pause_seconds, 0)
+       and new.paused_at is not distinct from old.paused_at then
+      return null;
+    end if;
+    new.client_updated_at := old.client_updated_at;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists labor_entries_0_merge on public.labor_entries;
+create trigger labor_entries_0_merge before insert or update on public.labor_entries
+  for each row execute function private.merge_crew_time();
+
 drop trigger if exists labor_entries_b_guard on public.labor_entries;
 create trigger labor_entries_b_guard before update on public.labor_entries
   for each row execute function private.guard_labor_update();
@@ -926,6 +1042,7 @@ grant execute on function private.edit_cutoff(uuid) to authenticated;
 grant execute on function private.shares_vineyard(uuid) to authenticated;
 grant execute on function private.touch_row() to authenticated;
 grant execute on function private.labor_set_hours() to authenticated;
+grant execute on function private.merge_crew_time() to authenticated;
 grant execute on function private.guard_labor_update() to authenticated;
 grant execute on function private.guard_row_status() to authenticated;
 grant execute on function private.guard_area() to authenticated;

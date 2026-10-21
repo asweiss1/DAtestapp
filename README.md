@@ -8,7 +8,9 @@ The vineyard name stays **DA Ranch**. The app on the phone is called **DA Ranch 
 
 Open the app and tap **Start work**. Pick the block, or **Non-field work** for a fence, planting, or tractor. Pick the task. On a block, tap the row you are starting. That starts the clock.
 
-When you stop, tap **Done**. You can tick other people who did the same rows. Tap the last row you finished, then **Partial** or **Complete**.
+The running job shows who is on it. Tap a name under **Add person** when someone joins. Their clock starts at that moment. Tap **Off** next to a name when that person leaves. Their time stops, and everyone else keeps going. Tap **Done** when the work is finished, tap the last row, then **Partial** or **Complete**. That stops the clock for everyone still on the job. Each person gets their own hours, from when they joined until they left, minus their own lunch.
+
+If two phones change the same job before they can sync, the earlier stop is the one that counts. A person is not given two copies of the same time. Lunch, the 2:25 stop, and the question before starting a second job are for each person.
 
 - Not started is pale red.
 - Partial is half green and half pale red.
