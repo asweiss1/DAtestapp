@@ -34,12 +34,15 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   display_name text not null,
   theme text not null default 'sage',
+  tour_seen boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   client_updated_at timestamptz not null default now(),
   constraint profiles_theme_chk check (theme in ('sage', 'sand', 'night', 'grape')),
   constraint profiles_name_chk check (char_length(btrim(display_name)) between 1 and 80)
 );
+
+alter table public.profiles add column if not exists tour_seen boolean not null default false;
 
 create table if not exists public.memberships (
   id uuid primary key default gen_random_uuid(),

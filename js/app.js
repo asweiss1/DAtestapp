@@ -5,6 +5,7 @@ import {
   SUPABASE_PUBLISHABLE_KEY,
   SUPABASE_URL,
   THEME_KEY,
+  TOUR_SEEN_PREFIX,
 } from "./config.js";
 import {
   allRows,
@@ -44,6 +45,7 @@ import {
   addHours,
 } from "./logic.js";
 import { signedPhotoUrls, syncAll } from "./sync.js";
+import { tourSteps } from "./tour.js";
 import { renderApp } from "./ui.js";
 
 const KEY_BY_TABLE = {
@@ -309,6 +311,7 @@ async function runSync() {
   } finally {
     state.syncing = false;
     if (db) state.outbox = (await outboxItems(db)).length;
+    maybeTour();
     paint();
   }
 }
@@ -928,6 +931,7 @@ function onClick(event) {
   else if (act === "skip-legacy") {
     try { localStorage.setItem(LEGACY_FLAG_KEY, "skip"); } catch { /* keep going */ }
     state.modal = null;
+    maybeTour();
     paint();
   } else if (act === "confirm-yes") {
     const modal = state.modal;
@@ -974,6 +978,12 @@ function onClick(event) {
   } else if (act === "forgot") forgotPassword();
   else if (act === "check-again") checkAgain();
   else if (act === "install") state.installEvent?.prompt();
+  else if (act === "tour-next") advanceTour();
+  else if (act === "tour-skip") finishTour();
+  else if (act === "replay-tour") {
+    state.tour = { step: 0, moved: true };
+    paint();
+  }
 }
 
 function onChange(event) {
@@ -1554,6 +1564,57 @@ async function loadExportCost(year) {
   }
 }
 
+function tourKey() {
+  return `${TOUR_SEEN_PREFIX}${state.userId || ""}`;
+}
+
+function tourSeenLocally() {
+  try { return localStorage.getItem(tourKey()) === "1"; } catch { return false; }
+}
+
+function markTourSeen() {
+  try { localStorage.setItem(tourKey(), "1"); } catch { /* private mode still hides it for this visit */ }
+  const profile = {
+    ...(state.profile || { id: state.userId, display_name: "Crew", theme: "sage" }),
+    id: state.userId,
+    tour_seen: true,
+  };
+  state.profile = profile;
+  if (state.demo || !db) return;
+  save("profiles", profile, { paintNow: false });
+}
+
+function maybeTour() {
+  if (!state.session || !state.vineyard || !state.userId || state.modal) return;
+  if (state.profile?.tour_seen) {
+    try { localStorage.setItem(tourKey(), "1"); } catch { /* keep the profile flag */ }
+  }
+  const seen = Boolean(state.profile?.tour_seen) || tourSeenLocally();
+  if (seen) {
+    if (state.tour && !state.tour.moved) state.tour = null;
+    return;
+  }
+  if (!state.tour) state.tour = { step: 0, moved: false };
+}
+
+function advanceTour() {
+  if (!state.tour) return;
+  const steps = tourSteps(state.role);
+  const next = (state.tour.step || 0) + 1;
+  if (next >= steps.length) {
+    finishTour();
+    return;
+  }
+  state.tour = { step: next, moved: true };
+  paint();
+}
+
+function finishTour() {
+  state.tour = null;
+  markTourSeen();
+  paint();
+}
+
 function maybeLegacy() {
   if (state.demo || !state.vineyard || state.modal) return;
   let flag = "";
@@ -1613,6 +1674,7 @@ function importLegacy() {
   try { localStorage.setItem(LEGACY_FLAG_KEY, "done"); } catch { /* the rows are still on this phone */ }
   state.modal = null;
   state.notice = "Old records are saved on this phone. They send when there is Wi-Fi.";
+  maybeTour();
   paint();
 }
 
@@ -1789,6 +1851,8 @@ async function openSession() {
     autoclose();
     paint();
     maybeLegacy();
+    maybeTour();
+    paint();
     syncNow();
   } catch (error) {
     pushError(error);
@@ -1850,6 +1914,7 @@ function startDemo() {
     }];
   }
   applyRoute();
+  maybeTour();
   paint();
 }
 

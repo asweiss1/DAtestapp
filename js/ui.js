@@ -1,4 +1,5 @@
 import { APP_NAME, THEMES } from "./config.js";
+import { tourSteps } from "./tour.js";
 import {
   countStatus,
   elapsedSeconds,
@@ -64,7 +65,8 @@ function shell(state, body, { back = true } = {}) {
       ${state.syncError ? `<p class="banner">${esc(state.syncError)}</p>` : ""}
       ${body}
     </div>
-    ${modal(state)}`;
+    ${modal(state)}
+    ${tourCard(state)}`;
 }
 
 function crewCards(state) {
@@ -612,6 +614,21 @@ function maintenanceScreen(state) {
   `);
 }
 
+function tourCard(state) {
+  if (!state.tour) return "";
+  const steps = tourSteps(state.role);
+  const index = Math.max(0, Math.min(state.tour.step || 0, steps.length - 1));
+  const step = steps[index];
+  const last = index === steps.length - 1;
+  return `<div class="modal-back tour-back"><div class="modal" data-tour="${esc(step.id)}">
+    <p class="meta">${index + 1} of ${steps.length}</p>
+    <h2>${esc(step.title)}</h2>
+    <p>${esc(step.body)}</p>
+    <button class="big" type="button" data-act="tour-next">${last ? "Done" : "Next"}</button>
+    <button class="ghost" type="button" data-act="tour-skip">Skip</button>
+  </div></div>`;
+}
+
 function settingsScreen(state) {
   const manager = state.role === "manager";
   return shell(state, `
@@ -626,6 +643,7 @@ function settingsScreen(state) {
         <label>Days a person can fix their own hours <input name="edit_window_days" type="number" min="0" max="30" value="${state.vineyard.edit_window_days ?? 3}" /></label>
         <button class="big" type="submit">Save</button>
       </form>` : `<p class="muted">A manager sets the end-of-day time. Open jobs stop at ${esc(String(state.vineyard?.eod_time || "14:25").slice(0, 5))}.</p>`}
+    <button class="ghost" type="button" data-act="replay-tour">Show the tour again</button>
     ${state.installEvent ? `<button class="big" type="button" data-act="install">Install on this phone</button>` : `<p class="note">On an iPhone, tap Share, then Add to Home Screen. On Android, use the browser menu and choose Install app.</p>`}
   `);
 }

@@ -12,7 +12,7 @@ const CONFLICT = {
 
 const COLUMNS = {
   vineyards: ["id", "name", "timezone", "eod_time", "edit_window_days", "client_updated_at"],
-  profiles: ["id", "display_name", "theme", "client_updated_at"],
+  profiles: ["id", "display_name", "theme", "tour_seen", "client_updated_at"],
   memberships: ["id", "vineyard_id", "user_id", "role", "active", "client_updated_at"],
   invites: ["id", "vineyard_id", "email", "display_name", "role", "invited_by", "accepted_at", "accepted_user_id", "deleted_at", "client_updated_at"],
   manager_requests: ["id", "vineyard_id", "user_id", "requested_by", "status", "decided_at", "decided_by", "client_updated_at"],

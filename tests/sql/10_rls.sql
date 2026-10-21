@@ -693,4 +693,27 @@ select 1 / case when (
 ) then 1 else 0 end;
 commit;
 
+-- The tour flag is on the person's own profile. Another person cannot clear it.
+begin;
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', true);
+set local role authenticated;
+update public.profiles
+  set tour_seen = true
+  where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
+select 1 / case when (
+  select tour_seen from public.profiles where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'
+) then 1 else 0 end;
+commit;
+
+begin;
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2', true);
+set local role authenticated;
+update public.profiles
+  set tour_seen = false
+  where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
+select 1 / case when (
+  select tour_seen from public.profiles where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'
+) then 1 else 0 end;
+commit;
+
 select 'RLS_OK';

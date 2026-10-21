@@ -84,6 +84,10 @@ Tap **Problem** and write what happened. It saves on the phone and sends with th
 
 The first time you sign in, if this phone still has the old vineyard notes, the app asks to bring them in. Say yes once.
 
+The first time an account opens the app, a short tour starts. It covers the block, the task, the start row, lunch, Partial or Complete, adding someone or checking them off, the Problem button, and the color picker. A manager also gets the crew, wage, cost, end-of-day, pass, chemical, and export steps. Aaron gets the step for approving a manager and reading problem reports. **Skip** is on every step. The account remembers that, even with no signal, and does not show the tour again. To watch it later, open **More → Color and settings → Show the tour again**.
+
+This release also has one line in the tour for Elliott. After the crew has seen it, set `TOUR_ELLIOTT_NUDGE` to `false` in `js/config.js`. That removes the line and leaves the rest of the tour.
+
 ## Setup (one time)
 
 This section is for putting the app on the internet. The crew does not need it.

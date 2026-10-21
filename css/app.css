@@ -129,6 +129,7 @@ textarea { min-height: 7rem; }
 [data-theme="night"] .banner { background: #3a3418; color: #fff3c4; }
 .preview { white-space: pre-wrap; background: var(--bg); border-radius: 10px; padding: .75rem; max-height: 12rem; overflow: auto; font-size: .85rem; }
 .modal-back { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: grid; align-items: end; z-index: 5; }
+.tour-back { z-index: 6; }
 .modal { background: var(--card); color: var(--ink); padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom)); border-radius: 18px 18px 0 0; display: grid; gap: .7rem; }
 .job-sticky { position: sticky; top: 0; z-index: 3; }
 .stat { font-size: 1.8rem; font-weight: 760; margin: 0; }

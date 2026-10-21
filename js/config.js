@@ -8,6 +8,10 @@ export const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_ngxd3dy5cuJlmISX1uKI0w_Y
 export const LEGACY_STORAGE_KEY = "vineyard-html-v3";
 export const LEGACY_FLAG_KEY = "daranch-legacy-v1";
 export const THEME_KEY = "daranch-theme";
+export const TOUR_SEEN_PREFIX = "daranch-tour-seen:";
+
+// First release only. Set this to false, or delete it, to drop the Elliott line from the tour.
+export const TOUR_ELLIOTT_NUDGE = true;
 
 export const THEMES = [
   { id: "sage", label: "Vineyard" },
