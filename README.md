@@ -1,0 +1,130 @@
+# DA Ranch Vineyard App
+
+This is the field app for DA Ranch. It keeps blocks, row work, sprays, water, weeds, harvest samples, equipment service, and hours. Several people can use it. Each person signs in on their own phone.
+
+The vineyard name stays **DA Ranch**. The app on the phone is called **DA Ranch Vineyard App**.
+
+## What you do with it
+
+Open the app and tap **Start work**. Pick the block, or **Non-field work** for a fence, planting, or tractor. Pick the task. On a block, tap the row you are starting. That starts the clock.
+
+When you stop, tap **Done**. You can tick other people who did the same rows. Tap the last row you finished, then **Partial** or **Complete**.
+
+- Not started is pale red.
+- Partial is half green and half pale red.
+- Complete is green.
+
+Those three colors stay the same if you change the app color.
+
+A clock left running stops itself at the end of the day. That time is 2:25 in the afternoon, Arizona time, unless a manager changes it. The stop uses 2:25, not the moment someone next opens the phone.
+
+**Lunch out** pauses the clock. **Lunch in** starts it again. Lunch does not count as hours.
+
+If you forgot to tap, use **More → Add forgotten hours**.
+
+Water is logged in hours. Each plant has two half-gallon emitters, so one hour is about one gallon per plant.
+
+Sprays can include a recommendation number and a photo. The photo sends when the phone has Wi-Fi.
+
+## Sign in once
+
+The first sign-in needs Wi-Fi. After that the phone stays signed in. Row taps and logs work with no service. They send themselves when the phone is back on Wi-Fi.
+
+Open the app on Wi-Fi at least once in a while so the hours leave the phone. An iPhone does not reliably send them in the background. Android can, after you install the app.
+
+## Add someone
+
+A manager, or Aaron, adds the person under **More → Crew**.
+
+1. Type their name and email.
+2. On their phone they tap **Create account** and use that same email.
+3. They pick their own password.
+4. They stay signed in.
+
+A manager can also type a starting hourly wage. That wage is not visible to anyone except a manager.
+
+## Who can do what
+
+**Employee.** Logs work, sees hours for each task, and can add a task name. They can fix their own entries for a few days (3 days unless a manager changes it). They never see wages or labor cost.
+
+**Manager.** Everything an employee can do, plus crew, wages, the end-of-day time, and labor cost. Cost is a total for a task or a pass. The app does not show what each person earned.
+
+**Developer (Aaron).** Can rename tasks, change the lists, add people, read problem reports, and log field work. This login cannot see wages or labor cost. The database blocks it, not just the screen.
+
+Make one crew lead a manager. That person sets wages and the 2:25 end-of-day time. Aaron’s developer login cannot do those two things.
+
+## On the phone
+
+- iPhone: Share, then **Add to Home Screen**.
+- Android: the browser menu, then **Install app**.
+
+**More → Color and settings** changes only your phone. Vineyard, Sand, Night, or Grape.
+
+## January 1
+
+The new year starts fresh on the home screen: row colors, sprays, water, weeds, and samples. Blocks, tasks, and equipment stay. Nothing is deleted. Older seasons are still in **Export**.
+
+## Export
+
+**Export** makes a spreadsheet or a written report: overview, sprays, block-by-block, and labor.
+
+Labor can be grouped by task, by pass, or both. If you show both, do not add those two sections together. Task hours already include the pass, split across the tasks in the pass.
+
+A manager’s labor report can include cost. Other logins get hours only.
+
+## Combined passes
+
+A pass is several jobs done in one walk, for example nets up, clip the top, and clip the bottom. A manager or Aaron adds it under **More → Combined passes**. Logging the pass marks every one of those tasks on the rows you tap. The full time is kept for the pass, and the same time is split evenly across the tasks. That example is not already in the app. You add it when you want it.
+
+## If something looks wrong
+
+Tap **Problem** and write what happened. It saves on the phone and sends with the next Wi-Fi. A manager or Aaron can read those notes under **More → Problem reports**.
+
+The first time you sign in, if this phone still has the old vineyard notes, the app asks to bring them in. Say yes once.
+
+## Setup (one time)
+
+This section is for putting the app on the internet. The crew does not need it.
+
+The app is a set of files. GitHub Pages serves them. Supabase holds the shared records. You do not put the secret key in GitHub or in the app. The publishable key in `js/config.js` is meant to be public. Row security in the database is what keeps vineyards, and wages, apart.
+
+### 1. Run the SQL
+
+In the Supabase dashboard, open **SQL Editor**. Run these files in this order, one at a time. They are safe to run again.
+
+1. `supabase/migrations/20261021120000_schema.sql`
+2. `supabase/migrations/20261021120100_functions.sql`
+3. `supabase/migrations/20261021120200_rls.sql`
+4. `supabase/migrations/20261021120300_storage.sql`
+5. `supabase/migrations/20261021120400_seed.sql`
+
+That creates DA Ranch, the blocks, the ten tasks, the spray list, equipment service types, and the private `spray-photos` bucket. It does not create a login.
+
+### 2. Create Aaron’s account, then make it the developer
+
+In the app, create an account with Aaron’s email. Then run `supabase/assign-developer.sql` in the SQL Editor. Change `aaron@example.com` in that file to the same email first.
+
+That file is not part of the five migrations, so a placeholder email never becomes a developer by accident.
+
+### 3. Auth settings
+
+In **Authentication**:
+
+- Email provider: on.
+- Confirm email: **off**. If this stays on, a new person cannot sign in until they open a confirmation mail, which is a poor fit for the ranch.
+- Site URL: `https://asweiss1.github.io/DAtestapp/`
+- Redirect URLs: `https://asweiss1.github.io/DAtestapp/` and `http://127.0.0.1:4173/`
+- Leave “single session per user” off, so a phone is not kicked off when someone signs in somewhere else.
+- Access tokens can stay at about one hour. The refresh token keeps the phone signed in.
+
+### 4. Storage
+
+After the SQL, **Storage** should show a bucket named `spray-photos`. It stays private. Photos are limited to 10 MB and to jpeg, png, webp, gif, heic, and heif. Do not switch the bucket to public.
+
+### 5. GitHub Pages
+
+Deploy from the `main` branch, folder `/` (root). The address is `https://asweiss1.github.io/DAtestapp/`.
+
+### 6. Another vineyard later
+
+The database can hold more than one vineyard, fully separated. `create_vineyard` exists for that. There is no button for it in the crew screens. DA Ranch is the one this app is set up for.

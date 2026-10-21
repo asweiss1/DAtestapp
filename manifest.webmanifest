@@ -1,0 +1,14 @@
+{
+  "name": "DA Ranch Vineyard App",
+  "short_name": "DA Ranch",
+  "description": "Field notes, row clocks, sprays, and hours for DA Ranch.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4efe6",
+  "theme_color": "#1f3d2b",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
