@@ -66,9 +66,7 @@ create policy memberships_update on public.memberships
   with check (
     (
       role in ('employee', 'developer')
-      or role = (
-        select m.role from public.memberships m where m.id = memberships.id
-      )
+      or role = (select private.membership_role(id))
     )
     and (
       (select private.is_manager(vineyard_id))

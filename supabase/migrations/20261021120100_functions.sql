@@ -265,6 +265,20 @@ $$;
 -- Transaction-local permission to write role = manager. Rows are invisible
 -- to other transactions until commit, and both callers delete them before
 -- they return. Authenticated has no privilege on the table.
+-- The stored role, read without Row Level Security. Policies must not
+-- select memberships themselves or the check recurses.
+create or replace function private.membership_role(p_id uuid)
+returns text
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select m.role
+  from public.memberships m
+  where m.id = p_id;
+$$;
+
 create or replace function private.manager_gate_open(p_kind text)
 returns boolean
 language sql
@@ -915,6 +929,7 @@ grant execute on function private.labor_set_hours() to authenticated;
 grant execute on function private.guard_labor_update() to authenticated;
 grant execute on function private.guard_row_status() to authenticated;
 grant execute on function private.guard_area() to authenticated;
+grant execute on function private.membership_role(uuid) to authenticated;
 grant execute on function private.guard_membership() to authenticated;
 grant execute on function private.guard_manager_request() to authenticated;
 grant execute on function private.guard_pass_task() to authenticated;

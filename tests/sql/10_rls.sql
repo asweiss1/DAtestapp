@@ -578,3 +578,5 @@ exception
     null;
 end $$;
 commit;
+
+select 'RLS_OK';
