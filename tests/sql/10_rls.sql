@@ -975,6 +975,13 @@ select 1 / case when (select count(*) from public.wine_facts where source like '
 select 1 / case when (select count(*) from public.variety_notes) = 20 then 1 else 0 end;
 select 1 / case when (select count(*) from public.variety_notes where needs_research) = 3 then 1 else 0 end;
 select 1 / case when (select count(*) from public.variety_notes where variety in ('Malvasia', 'Greco', 'Teroldego') and needs_research) = 3 then 1 else 0 end;
+select 1 / case when (select count(*) from public.blocks where name = 'DA Malvasia' and variety = 'Malvasia Bianca') = 1 then 1 else 0 end;
+select 1 / case when (select count(*) from public.blocks where name = 'DA Greco de Tuffo' and variety = 'Greco de Tuffo') = 1 then 1 else 0 end;
+select 1 / case when (select count(*) from public.blocks where name = 'DA Grecco De Tuffo') = 0 then 1 else 0 end;
+select 1 / case when (select count(*) from public.blocks where name = 'HM Toraldego' and variety = 'Teroldego') = 1 then 1 else 0 end;
+select 1 / case when (select vigor from public.variety_notes where variety = 'Malvasia') like 'This block is Malvasia Bianca%' then 1 else 0 end;
+select 1 / case when (select vigor from public.variety_notes where variety = 'Greco') like 'This block is Greco de Tuffo%' then 1 else 0 end;
+select 1 / case when (select vigor from public.variety_notes where variety = 'Teroldego') like 'The grape''s name is Teroldego%' then 1 else 0 end;
 select 1 / case when (select count(*) from public.variety_notes where variety = 'Syrah 525' and vigor like '%not on the certified-clone list%') = 1 then 1 else 0 end;
 select 1 / case when (select count(*) from public.variety_notes where variety = 'Syrah 471' and vigor like '%very few symptoms of decline%') = 1 then 1 else 0 end;
 select 1 / case when (select count(*) from public.variety_notes where needs_research = false and harvest not like '%does not publish a target Brix%') = 0 then 1 else 0 end;

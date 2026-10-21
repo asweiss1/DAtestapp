@@ -35,8 +35,11 @@ test("block spellings match the variety, and a visit stays on one line", () => {
   assert.equal(varietyKey("Cabernet"), "cabernet sauvignon");
   assert.equal(varietyKey("Grenach"), "grenache");
   assert.equal(varietyKey("Grecco De Tuffo"), "greco");
+  assert.equal(varietyKey("Greco de Tuffo"), "greco");
   assert.equal(varietyKey("Counois"), "counoise");
   assert.equal(varietyKey("Toraldego"), "teroldego");
+  assert.equal(varietyKey("Taraldego"), "teroldego");
+  assert.equal(varietyKey("Malvasia Bianca"), "malvasia");
   assert.equal(varietyKey("Petit Sirah"), "petite sirah");
   assert.equal(varietyKey("Syrah 525"), "syrah");
 
