@@ -315,14 +315,17 @@ export function mergeCrewEntry(current, incoming) {
   const endOwner = !ended
     ? (laterIso(current.client_updated_at, incoming.client_updated_at) === String(incoming.client_updated_at || "") ? incoming : current)
     : (current.ended_at && String(current.ended_at) === String(ended) ? current : incoming);
+  const completeSides = [current, incoming].filter((row) => row.row_status === "complete");
   let status = endOwner.row_status || null;
-  if (
-    current.ended_at && incoming.ended_at
-    && String(current.ended_at) === String(incoming.ended_at)
-    && (current.row_status === "complete" || incoming.row_status === "complete")
-  ) {
+  let rowEnd = ended ? (endOwner.row_end ?? null) : (endOwner.row_end ?? current.row_end ?? incoming.row_end ?? null);
+  if (completeSides.length) {
+    completeSides.sort((a, b) => String(a.ended_at || "9999").localeCompare(String(b.ended_at || "9999")));
     status = "complete";
+    rowEnd = completeSides[0].row_end ?? rowEnd;
   }
+  const entryKind = ended
+    ? (endOwner.entry_kind === "open" ? (endOwner.pass_id ? "pass_total" : "task") : endOwner.entry_kind)
+    : "open";
   return {
     ...endOwner,
     id: current.id,
@@ -333,35 +336,154 @@ export function mergeCrewEntry(current, incoming) {
     ended_at: ended,
     pause_seconds: pause,
     paused_at: pausedAt,
-    row_end: ended ? (endOwner.row_end ?? null) : (endOwner.row_end ?? current.row_end ?? incoming.row_end ?? null),
+    row_end: rowEnd,
     row_status: status,
-    entry_kind: ended ? (endOwner.entry_kind === "open" ? (endOwner.pass_id ? "pass_total" : "task") : endOwner.entry_kind) : "open",
+    entry_kind: entryKind,
+    hours: ended ? hoursBetween(started, ended, pause) : null,
     client_updated_at: laterIso(current.client_updated_at, incoming.client_updated_at),
   };
 }
 
-export function foldCrewLabor(rows) {
-  const out = [];
-  const index = new Map();
-  for (const row of rows || []) {
-    const key = row.crew_job_id && row.entry_kind !== "pass_slice" && !row.deleted_at
-      ? `${row.crew_job_id}:${row.user_id}`
-      : "";
-    if (!key) {
-      out.push(row);
-      continue;
-    }
-    const prev = index.get(key);
-    if (!prev) {
-      index.set(key, row);
-      out.push(row);
-      continue;
-    }
-    const merged = mergeCrewEntry(prev, row);
-    out[out.indexOf(prev)] = merged;
-    index.set(key, merged);
+export function crewWorkKey(row) {
+  if (!row) return "";
+  return [
+    row.vineyard_id || "",
+    row.work_date || "",
+    row.block_id || "",
+    row.area_id || "",
+    row.pass_id || "",
+    row.pass_id ? "" : (row.task_id || ""),
+    row.row_start == null || row.row_start === "" ? "" : String(row.row_start),
+  ].join("|");
+}
+
+function uuidFromString(text) {
+  let h1 = 2166136261;
+  let h2 = 2166136261 ^ 0x9e3779b9;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    h1 ^= code;
+    h1 = Math.imul(h1, 16777619);
+    h2 ^= code + i;
+    h2 = Math.imul(h2, 16777619);
   }
-  return out;
+  const bytes = [];
+  let x = h1 >>> 0;
+  let y = h2 >>> 0;
+  for (let i = 0; i < 8; i++) {
+    bytes.push((x >>> ((i % 4) * 8)) & 0xff);
+    x = (Math.imul(x, 16777619) ^ y) >>> 0;
+  }
+  for (let i = 0; i < 8; i++) {
+    bytes.push((y >>> ((i % 4) * 8)) & 0xff);
+    y = (Math.imul(y, 2246822519) ^ x) >>> 0;
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  return bytesToUuid(bytes);
+}
+
+// Same id on every phone that starts this block, task, and row on this day.
+export function sharedCrewJobId(work) {
+  return uuidFromString(crewWorkKey(work));
+}
+
+export function intervalsOverlap(a, b) {
+  const start = (row) => {
+    const n = Date.parse(row?.started_at || "");
+    return Number.isNaN(n) ? 0 : n;
+  };
+  const end = (row) => {
+    if (!row?.ended_at) return Infinity;
+    const n = Date.parse(row.ended_at);
+    return Number.isNaN(n) ? Infinity : n;
+  };
+  return start(a) < end(b) && start(b) < end(a);
+}
+
+function clockRow(row) {
+  return row && !row.deleted_at && row.entry_kind !== "pass_slice" && row.source !== "manual";
+}
+
+function clusterByOverlap(rows) {
+  const parent = rows.map((_, index) => index);
+  const find = (index) => (parent[index] === index ? index : (parent[index] = find(parent[index])));
+  const union = (left, right) => {
+    parent[find(left)] = find(right);
+  };
+  for (let i = 0; i < rows.length; i++) {
+    for (let j = i + 1; j < rows.length; j++) {
+      const sameJob = rows[i].crew_job_id && rows[i].crew_job_id === rows[j].crew_job_id;
+      if (sameJob || intervalsOverlap(rows[i], rows[j])) union(i, j);
+    }
+  }
+  const buckets = new Map();
+  rows.forEach((row, index) => {
+    const id = find(index);
+    if (!buckets.has(id)) buckets.set(id, []);
+    buckets.get(id).push(row);
+  });
+  return [...buckets.values()];
+}
+
+function canonicalCrewId(rows) {
+  const sorted = rows.slice().sort((a, b) => (
+    String(a.started_at).localeCompare(String(b.started_at))
+    || String(a.crew_job_id || a.id).localeCompare(String(b.crew_job_id || b.id))
+  ));
+  return sorted[0].crew_job_id || sorted[0].id;
+}
+
+// Rows from two phones after they sync. Same block, task, and start row
+// in overlapping time become one job. Each person keeps one interval.
+export function mergeOfflineLabor(rows) {
+  const passthrough = [];
+  const clocks = [];
+  for (const row of rows || []) {
+    if (!clockRow(row)) passthrough.push(row);
+    else clocks.push(row);
+  }
+  const byWork = new Map();
+  for (const row of clocks) {
+    const key = crewWorkKey(row);
+    if (!byWork.has(key)) byWork.set(key, []);
+    byWork.get(key).push(row);
+  }
+  const kept = [];
+  const keptIds = new Set();
+  for (const group of byWork.values()) {
+    for (const cluster of clusterByOverlap(group)) {
+      const crewJobId = canonicalCrewId(cluster);
+      const byUser = new Map();
+      for (const row of cluster) {
+        if (!byUser.has(row.user_id)) byUser.set(row.user_id, []);
+        byUser.get(row.user_id).push(row);
+      }
+      for (const list of byUser.values()) {
+        list.sort((a, b) => String(a.started_at).localeCompare(String(b.started_at)) || String(a.id).localeCompare(String(b.id)));
+        let merged = { ...list[0], crew_job_id: crewJobId };
+        for (const extra of list.slice(1)) merged = mergeCrewEntry(merged, { ...extra, crew_job_id: crewJobId });
+        merged.crew_job_id = crewJobId;
+        merged.id = list[0].id;
+        if (merged.ended_at) {
+          merged.hours = hoursBetween(merged.started_at, merged.ended_at, merged.pause_seconds);
+          if (merged.entry_kind === "open") merged.entry_kind = merged.pass_id ? "pass_total" : "task";
+        }
+        kept.push(merged);
+        keptIds.add(merged.id);
+      }
+    }
+  }
+  const slices = passthrough.filter((row) => {
+    if (!row || row.entry_kind !== "pass_slice") return true;
+    if (keptIds.has(row.pass_group_id)) return true;
+    return !clocks.some((clock) => clock.id === row.pass_group_id);
+  });
+  return kept.concat(slices);
+}
+
+export function foldCrewLabor(rows) {
+  return mergeOfflineLabor(rows);
 }
 
 export function openCrewJobs(labor) {

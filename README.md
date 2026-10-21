@@ -12,6 +12,8 @@ The running job shows who is on it. Tap a name under **Add person** when someone
 
 If two phones change the same job before they can sync, the earlier stop is the one that counts. A person is not given two copies of the same time. Lunch, the 2:25 stop, and the question before starting a second job are for each person.
 
+If two phones both start the same row and task with no signal, those become one job when the phones sync. Each person still has their own hours. If one phone says Partial and the other says Complete, the rows stay Complete and the clock uses the earlier stop. Checking one person off, while another phone ends the job, stops that person at the earlier time and leaves everyone else’s stop on the job end. The same person clocked on two phones is one clock, not two. A later session the same day, after the first one has already stopped, stays a separate job.
+
 - Not started is pale red.
 - Partial is half green and half pale red.
 - Complete is green.

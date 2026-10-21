@@ -5,6 +5,8 @@ import {
   closeOpenJob,
   crewMemberEntryId,
   mergeCrewEntry,
+  mergeOfflineLabor,
+  sharedCrewJobId,
   editCutoffDate,
   eodCloseInstant,
   hoursBetween,
@@ -178,7 +180,9 @@ test("the earlier leave wins when two phones sync the same person", () => {
     client_updated_at: "2026-06-15T18:00:00.000Z",
   });
   assert.equal(laterLeave.ended_at, "2026-06-15T17:00:00.000Z");
-  assert.equal(laterLeave.row_end, 3);
+  assert.equal(laterLeave.row_status, "complete");
+  assert.equal(laterLeave.row_end, 8);
+  assert.equal(laterLeave.hours, 0.833);
   const earlierJoin = mergeCrewEntry(stillOpen, {
     ...stillOpen,
     started_at: "2026-06-15T15:30:00.000Z",
@@ -186,6 +190,77 @@ test("the earlier leave wins when two phones sync the same person", () => {
   });
   assert.equal(earlierJoin.started_at, "2026-06-15T15:30:00.000Z");
   assert.equal(earlierJoin.ended_at, null);
+});
+
+function clock(id, user, start, end, status, rowEnd, crew = id) {
+  return {
+    id,
+    crew_job_id: crew,
+    vineyard_id: "v",
+    user_id: user,
+    logged_by: user,
+    season_year: 2026,
+    work_date: "2026-06-15",
+    block_id: "b",
+    task_id: "t",
+    entry_kind: end ? "task" : "open",
+    row_start: 3,
+    row_end: rowEnd,
+    row_status: status,
+    started_at: start,
+    ended_at: end,
+    pause_seconds: 0,
+    source: "taps",
+  };
+}
+
+test("offline phones merge into one job with one interval per person", () => {
+  const hollyA = clock("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1", "holly", "2026-06-15T15:00:00.000Z", null, null, null);
+  const nickB = clock("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2", "nick", "2026-06-15T16:00:00.000Z", null, null, null);
+  const started = mergeOfflineLabor([nickB, hollyA]);
+  assert.equal(started.length, 2);
+  assert.equal(new Set(started.map((row) => row.crew_job_id)).size, 1);
+  assert.equal(started.find((row) => row.user_id === "holly").started_at, "2026-06-15T15:00:00.000Z");
+  assert.equal(started.find((row) => row.user_id === "nick").started_at, "2026-06-15T16:00:00.000Z");
+  assert.equal(sharedCrewJobId(hollyA), sharedCrewJobId(nickB));
+
+  const partial = clock("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1", "holly", "2026-06-15T15:00:00.000Z", "2026-06-15T17:00:00.000Z", "partial", 4, hollyA.crew_job_id);
+  const complete = clock("cccccccc-cccc-4ccc-8ccc-ccccccccccc3", "holly", "2026-06-15T15:10:00.000Z", "2026-06-15T18:00:00.000Z", "complete", 6, "cccccccc-cccc-4ccc-8ccc-ccccccccccc3");
+  const ended = mergeOfflineLabor([complete, partial]);
+  assert.equal(ended.length, 1);
+  assert.equal(ended[0].ended_at, "2026-06-15T17:00:00.000Z");
+  assert.equal(ended[0].row_status, "complete");
+  assert.equal(ended[0].hours, 2);
+  const completeFirst = clock("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1", "holly", "2026-06-15T15:00:00.000Z", "2026-06-15T17:00:00.000Z", "complete", 6, hollyA.crew_job_id);
+  const partialLater = clock("cccccccc-cccc-4ccc-8ccc-ccccccccccc3", "holly", "2026-06-15T15:10:00.000Z", "2026-06-15T18:00:00.000Z", "partial", 4, "cccccccc-cccc-4ccc-8ccc-ccccccccccc3");
+  const stillComplete = mergeOfflineLabor([partialLater, completeFirst]);
+  assert.equal(stillComplete[0].ended_at, "2026-06-15T17:00:00.000Z");
+  assert.equal(stillComplete[0].row_status, "complete");
+  assert.equal(stillComplete[0].hours, 2);
+
+  const nickLeave = clock("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2", "nick", "2026-06-15T16:00:00.000Z", "2026-06-15T17:00:00.000Z", null, null, hollyA.crew_job_id);
+  const nickEndedLater = clock("dddddddd-dddd-4ddd-8ddd-ddddddddddd4", "nick", "2026-06-15T16:00:00.000Z", "2026-06-15T19:00:00.000Z", "complete", 6, hollyA.crew_job_id);
+  const hollyDone = clock("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1", "holly", "2026-06-15T15:00:00.000Z", "2026-06-15T19:00:00.000Z", "complete", 6, hollyA.crew_job_id);
+  const mixed = mergeOfflineLabor([hollyDone, nickLeave, nickEndedLater]);
+  assert.equal(mixed.length, 2);
+  assert.equal(mixed.find((row) => row.user_id === "nick").ended_at, "2026-06-15T17:00:00.000Z");
+  assert.equal(mixed.find((row) => row.user_id === "nick").hours, 1);
+  assert.equal(mixed.find((row) => row.user_id === "holly").ended_at, "2026-06-15T19:00:00.000Z");
+  assert.equal(mixed.find((row) => row.user_id === "holly").hours, 4);
+  assert.equal(mixed.find((row) => row.user_id === "nick").row_status, "complete");
+
+  const phone1 = clock("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1", "holly", "2026-06-15T15:00:00.000Z", "2026-06-15T18:00:00.000Z", "partial", 4);
+  const phone2 = clock("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee5", "holly", "2026-06-15T15:30:00.000Z", "2026-06-15T17:00:00.000Z", "partial", 4);
+  const oneClock = mergeOfflineLabor([phone1, phone2]);
+  assert.equal(oneClock.length, 1);
+  assert.equal(oneClock[0].started_at, "2026-06-15T15:00:00.000Z");
+  assert.equal(oneClock[0].ended_at, "2026-06-15T17:00:00.000Z");
+  assert.equal(oneClock[0].hours, 2);
+
+  const morning = clock("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1", "holly", "2026-06-15T15:00:00.000Z", "2026-06-15T17:00:00.000Z", "complete", 3);
+  const afternoon = { ...clock("ffffffff-ffff-4fff-8fff-fffffffffff6", "holly", "2026-06-15T20:00:00.000Z", "2026-06-15T21:00:00.000Z", "partial", 3), row_start: 3 };
+  const separate = mergeOfflineLabor([morning, afternoon]);
+  assert.equal(separate.length, 2);
 });
 
 test("a finished row stays finished unless a lead allows the change", () => {

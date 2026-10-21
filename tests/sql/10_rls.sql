@@ -693,6 +693,186 @@ select 1 / case when (
 ) then 1 else 0 end;
 commit;
 
+-- Offline phones. Same row and task become one job. Earliest stop wins.
+-- Complete beats Partial. One person is not counted twice.
+begin;
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', true);
+set local role authenticated;
+insert into public.labor_entries (
+  id, vineyard_id, user_id, logged_by, season_year, work_date, block_id, task_id,
+  crew_job_id, entry_kind, row_start, started_at, source
+)
+select 'a1111111-1111-4111-8111-111111111111', vineyard, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 2026, today, block, task,
+       'a1111111-1111-4111-8111-111111111111', 'open', 5,
+       (today::timestamp + time '13:00') at time zone 'America/Phoenix', 'taps'
+from fix;
+insert into public.labor_entries (
+  id, vineyard_id, user_id, logged_by, season_year, work_date, block_id, task_id,
+  crew_job_id, entry_kind, row_start, started_at, source
+)
+select 'a2222222-2222-4222-8222-222222222222', vineyard, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 2026, today, block, task,
+       'a2222222-2222-4222-8222-222222222222', 'open', 5,
+       (today::timestamp + time '13:10') at time zone 'America/Phoenix', 'taps'
+from fix;
+insert into public.labor_entries (
+  id, vineyard_id, user_id, logged_by, season_year, work_date, block_id, task_id,
+  crew_job_id, entry_kind, row_start, started_at, source
+)
+select 'a3333333-3333-4333-8333-333333333333', vineyard, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2',
+       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 2026, today, block, task,
+       'a3333333-3333-4333-8333-333333333333', 'open', 5,
+       (today::timestamp + time '13:30') at time zone 'America/Phoenix', 'taps'
+from fix;
+select 1 / case when (
+  select count(*) from public.labor_entries
+  where user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'
+    and row_start = 5 and deleted_at is null and entry_kind <> 'pass_slice'
+) = 1 then 1 else 0 end;
+select 1 / case when (
+  select count(distinct crew_job_id) from public.labor_entries
+  where row_start = 5 and deleted_at is null and entry_kind <> 'pass_slice'
+) = 1 then 1 else 0 end;
+select 1 / case when (
+  select started_at = (today::timestamp + time '13:00') at time zone 'America/Phoenix'
+  from public.labor_entries le, fix
+  where le.id = 'a1111111-1111-4111-8111-111111111111'
+) then 1 else 0 end;
+commit;
+
+begin;
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', true);
+set local role authenticated;
+update public.labor_entries
+  set ended_at = (select (today::timestamp + time '14:30') at time zone 'America/Phoenix' from fix),
+      row_end = 5, row_status = 'partial', close_reason = 'tap',
+      client_updated_at = clock_timestamp()
+  where id in ('a1111111-1111-4111-8111-111111111111', 'a3333333-3333-4333-8333-333333333333');
+update public.labor_entries
+  set ended_at = (select (today::timestamp + time '15:00') at time zone 'America/Phoenix' from fix),
+      row_end = 6, row_status = 'complete', close_reason = 'tap',
+      client_updated_at = clock_timestamp()
+  where id in ('a1111111-1111-4111-8111-111111111111', 'a3333333-3333-4333-8333-333333333333');
+select 1 / case when (
+  select ended_at = (today::timestamp + time '14:30') at time zone 'America/Phoenix'
+     and row_status = 'complete' and hours = 1.5
+  from public.labor_entries le, fix
+  where le.id = 'a1111111-1111-4111-8111-111111111111'
+) then 1 else 0 end;
+select 1 / case when (
+  select ended_at = (today::timestamp + time '14:30') at time zone 'America/Phoenix'
+     and row_status = 'complete' and hours = 1.0
+  from public.labor_entries le, fix
+  where le.id = 'a3333333-3333-4333-8333-333333333333'
+) then 1 else 0 end;
+commit;
+
+begin;
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', true);
+set local role authenticated;
+insert into public.labor_entries (
+  id, vineyard_id, user_id, logged_by, season_year, work_date, block_id, task_id,
+  crew_job_id, entry_kind, row_start, started_at, source
+)
+select 'b1111111-1111-4111-8111-111111111111', vineyard, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 2026, today, block, task,
+       'b1111111-1111-4111-8111-111111111111', 'open', 6,
+       (today::timestamp + time '16:00') at time zone 'America/Phoenix', 'taps'
+from fix;
+insert into public.labor_entries (
+  id, vineyard_id, user_id, logged_by, season_year, work_date, block_id, task_id,
+  crew_job_id, entry_kind, row_start, started_at, source
+)
+select 'b3333333-3333-4333-8333-333333333333', vineyard, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2',
+       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 2026, today, block, task,
+       'b3333333-3333-4333-8333-333333333333', 'open', 6,
+       (today::timestamp + time '16:20') at time zone 'America/Phoenix', 'taps'
+from fix;
+update public.labor_entries
+  set ended_at = (select (today::timestamp + time '17:00') at time zone 'America/Phoenix' from fix),
+      close_reason = 'leave', client_updated_at = clock_timestamp()
+  where id = 'b3333333-3333-4333-8333-333333333333';
+update public.labor_entries
+  set ended_at = (select (today::timestamp + time '18:00') at time zone 'America/Phoenix' from fix),
+      row_end = 6, row_status = 'complete', close_reason = 'tap',
+      client_updated_at = clock_timestamp()
+  where id in ('b1111111-1111-4111-8111-111111111111', 'b3333333-3333-4333-8333-333333333333');
+select 1 / case when (
+  select ended_at = (today::timestamp + time '17:00') at time zone 'America/Phoenix'
+     and hours = 0.667
+  from public.labor_entries le, fix
+  where le.id = 'b3333333-3333-4333-8333-333333333333' and le.deleted_at is null
+) then 1 else 0 end;
+select 1 / case when (
+  select ended_at = (today::timestamp + time '18:00') at time zone 'America/Phoenix'
+     and hours = 2 and row_status = 'complete'
+  from public.labor_entries le, fix
+  where le.id = 'b1111111-1111-4111-8111-111111111111' and le.deleted_at is null
+) then 1 else 0 end;
+select 1 / case when (
+  select count(*) from public.labor_entries
+  where row_start = 6 and deleted_at is null and entry_kind <> 'pass_slice'
+) = 2 then 1 else 0 end;
+commit;
+
+-- Complete can sync before Partial. The older Partial still moves the stop
+-- earlier, and the row stays Complete. A second phone's copy is not stored.
+begin;
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', true);
+set local role authenticated;
+insert into public.labor_entries (
+  id, vineyard_id, user_id, logged_by, season_year, work_date, block_id, task_id,
+  crew_job_id, entry_kind, row_start, started_at, source
+)
+select 'c1111111-1111-4111-8111-111111111111', vineyard, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 2026, today, block, task,
+       'c1111111-1111-4111-8111-111111111111', 'open', 7,
+       (today::timestamp + time '13:00') at time zone 'America/Phoenix', 'taps'
+from fix;
+update public.labor_entries
+  set ended_at = (select (today::timestamp + time '15:00') at time zone 'America/Phoenix' from fix),
+      row_end = 8, row_status = 'complete', close_reason = 'tap',
+      client_updated_at = (select (today::timestamp + time '15:00') at time zone 'America/Phoenix' from fix)
+  where id = 'c1111111-1111-4111-8111-111111111111';
+update public.labor_entries
+  set ended_at = (select (today::timestamp + time '14:30') at time zone 'America/Phoenix' from fix),
+      row_end = 4, row_status = 'partial', close_reason = 'tap',
+      client_updated_at = (select (today::timestamp + time '14:30') at time zone 'America/Phoenix' from fix)
+  where id = 'c1111111-1111-4111-8111-111111111111';
+select 1 / case when (
+  select ended_at = (today::timestamp + time '14:30') at time zone 'America/Phoenix'
+     and row_status = 'complete' and row_end = 8 and hours = 1.5
+  from public.labor_entries le, fix
+  where le.id = 'c1111111-1111-4111-8111-111111111111' and le.deleted_at is null
+) then 1 else 0 end;
+insert into public.labor_entries (
+  id, vineyard_id, user_id, logged_by, season_year, work_date, block_id, task_id,
+  crew_job_id, entry_kind, row_start, row_end, row_status,
+  started_at, ended_at, close_reason, source, client_updated_at
+)
+select 'c2222222-2222-4222-8222-222222222222', vineyard, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 2026, today, block, task,
+       'c2222222-2222-4222-8222-222222222222', 'task', 7, 4, 'partial',
+       (today::timestamp + time '13:05') at time zone 'America/Phoenix',
+       (today::timestamp + time '14:00') at time zone 'America/Phoenix',
+       'tap', 'taps',
+       (today::timestamp + time '14:00') at time zone 'America/Phoenix'
+from fix;
+select 1 / case when (
+  select count(*) from public.labor_entries
+  where user_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'
+    and row_start = 7 and deleted_at is null and entry_kind <> 'pass_slice'
+) = 1 then 1 else 0 end;
+select 1 / case when (
+  select started_at = (today::timestamp + time '13:00') at time zone 'America/Phoenix'
+     and ended_at = (today::timestamp + time '14:00') at time zone 'America/Phoenix'
+     and row_status = 'complete' and hours = 1
+  from public.labor_entries le, fix
+  where le.id = 'c1111111-1111-4111-8111-111111111111' and le.deleted_at is null
+) then 1 else 0 end;
+commit;
+
 -- The tour flag is on the person's own profile. Another person cannot clear it.
 begin;
 select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', true);

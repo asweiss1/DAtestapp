@@ -885,10 +885,9 @@ begin
   end loop;
 end $$;
 
--- Shared job: one interval per person. Earliest join and earliest leave win,
--- so a phone that still shows the clock running cannot erase a stop, and a
--- later stop cannot stretch the hours. A second insert for the same person
--- is folded into the first row.
+-- Shared job after sync:
+-- same block, task, and start row in overlapping time become one crew job;
+-- each person keeps one interval; the earlier stop wins; Complete beats Partial.
 create or replace function private.merge_crew_time()
 returns trigger
 language plpgsql
@@ -903,65 +902,120 @@ declare
   v_status text;
   v_end_row integer;
   v_reason text;
-  v_kind text;
+  v_old_status text;
+  v_new_status text;
+  v_job uuid;
 begin
-  if new.crew_job_id is null or new.entry_kind = 'pass_slice' then
+  if coalesce(pg_catalog.current_setting('daranch.merging', true), '') = '1' then
     return new;
   end if;
-  if new.deleted_at is not null then
+  if new.entry_kind = 'pass_slice' or new.source = 'manual' or new.deleted_at is not null then
     return new;
   end if;
 
-  if tg_op = 'INSERT' then
-    select * into existing
-    from public.labor_entries
-    where crew_job_id = new.crew_job_id
-      and user_id = new.user_id
-      and deleted_at is null
-      and entry_kind in ('open', 'task', 'pass_total')
-      and id is distinct from new.id
-    limit 1;
-    if existing.id is null then
-      return new;
-    end if;
+  select * into existing
+  from public.labor_entries
+  where vineyard_id = new.vineyard_id
+    and work_date = new.work_date
+    and block_id is not distinct from new.block_id
+    and area_id is not distinct from new.area_id
+    and pass_id is not distinct from new.pass_id
+    and task_id is not distinct from new.task_id
+    and row_start is not distinct from new.row_start
+    and deleted_at is null
+    and entry_kind in ('open', 'task', 'pass_total')
+    and id is distinct from new.id
+    and started_at < coalesce(new.ended_at, 'infinity'::timestamptz)
+    and new.started_at < coalesce(ended_at, 'infinity'::timestamptz)
+  order by case when user_id = new.user_id then 0 else 1 end, started_at, id
+  limit 1;
+
+  if existing.id is not null and existing.user_id = new.user_id then
     v_start := least(existing.started_at, new.started_at);
     v_end := least(existing.ended_at, new.ended_at);
     v_pause := greatest(coalesce(existing.pause_seconds, 0), coalesce(new.pause_seconds, 0));
-    if v_end is not null and existing.ended_at is not distinct from v_end then
+    if existing.row_status = 'complete' or new.row_status = 'complete' then
+      v_status := 'complete';
+      if new.row_status = 'complete' and existing.row_status is distinct from 'complete' then
+        v_end_row := new.row_end;
+      elsif existing.row_status = 'complete' and new.row_status is distinct from 'complete' then
+        v_end_row := existing.row_end;
+      elsif existing.ended_at is not null and (new.ended_at is null or existing.ended_at <= new.ended_at) then
+        v_end_row := existing.row_end;
+      else
+        v_end_row := new.row_end;
+      end if;
+    elsif v_end is not null and existing.ended_at is not distinct from v_end then
       v_status := existing.row_status;
       v_end_row := existing.row_end;
-      v_reason := existing.close_reason;
-      v_kind := existing.entry_kind;
     else
       v_status := new.row_status;
       v_end_row := new.row_end;
+    end if;
+    if v_end is not null and existing.ended_at is not distinct from v_end then
+      v_reason := existing.close_reason;
+    else
       v_reason := new.close_reason;
-      v_kind := new.entry_kind;
     end if;
-    if existing.ended_at is not null
-       and new.ended_at is not null
-       and existing.ended_at = new.ended_at
-       and (existing.row_status = 'complete' or new.row_status = 'complete') then
-      v_status := 'complete';
-    end if;
+    perform pg_catalog.set_config('daranch.merging', '1', true);
     update public.labor_entries
       set started_at = v_start,
           ended_at = v_end,
           pause_seconds = v_pause,
-          paused_at = case when v_end is null then least(existing.paused_at, new.paused_at) else null end,
+          paused_at = case when v_end is null then least(paused_at, new.paused_at) else null end,
           row_status = v_status,
           row_end = v_end_row,
           close_reason = v_reason,
-          entry_kind = case when v_end is null then 'open' else v_kind end,
-          client_updated_at = greatest(existing.client_updated_at, coalesce(new.client_updated_at, existing.client_updated_at))
+          entry_kind = case
+            when v_end is null then 'open'
+            when pass_id is not null then 'pass_total'
+            else 'task'
+          end,
+          crew_job_id = coalesce(crew_job_id, id),
+          client_updated_at = greatest(client_updated_at, coalesce(new.client_updated_at, client_updated_at))
       where id = existing.id;
+    perform pg_catalog.set_config('daranch.merging', '', true);
+    if tg_op = 'UPDATE' then
+      new.deleted_at := coalesce(old.deleted_at, pg_catalog.clock_timestamp());
+      new.ended_at := coalesce(v_end, old.ended_at, new.started_at);
+      new.entry_kind := case when new.pass_id is not null then 'pass_total' else 'task' end;
+      new.row_status := v_status;
+      new.row_end := v_end_row;
+      return new;
+    end if;
     return null;
   end if;
 
+  if existing.id is not null and existing.user_id is distinct from new.user_id then
+    v_job := coalesce(existing.crew_job_id, existing.id);
+    if existing.crew_job_id is null then
+      perform pg_catalog.set_config('daranch.merging', '1', true);
+      update public.labor_entries set crew_job_id = id where id = existing.id and crew_job_id is null;
+      perform pg_catalog.set_config('daranch.merging', '', true);
+    end if;
+    new.crew_job_id := v_job;
+  end if;
+
+  if tg_op = 'INSERT' or new.crew_job_id is null then
+    return new;
+  end if;
+
+  v_old_status := old.row_status;
+  v_new_status := new.row_status;
   v_start := least(old.started_at, new.started_at);
   v_end := least(old.ended_at, new.ended_at);
   v_pause := greatest(coalesce(old.pause_seconds, 0), coalesce(new.pause_seconds, 0));
-  if v_end is not null and old.ended_at is not distinct from v_end and (new.ended_at is null or old.ended_at <= new.ended_at) then
+  if v_old_status = 'complete' or v_new_status = 'complete' then
+    new.row_status := 'complete';
+    if v_new_status = 'complete' and v_old_status is distinct from 'complete' then
+      new.row_end := new.row_end;
+    elsif v_old_status = 'complete' and v_new_status is distinct from 'complete' then
+      new.row_end := old.row_end;
+    elsif old.ended_at is not null and (new.ended_at is null or old.ended_at <= new.ended_at) then
+      new.row_end := old.row_end;
+      new.close_reason := old.close_reason;
+    end if;
+  elsif v_end is not null and old.ended_at is not distinct from v_end and (new.ended_at is null or old.ended_at <= new.ended_at) then
     new.row_status := old.row_status;
     new.row_end := old.row_end;
     new.close_reason := old.close_reason;
@@ -969,18 +1023,14 @@ begin
       new.entry_kind := old.entry_kind;
     end if;
   end if;
-  if old.ended_at is not null
-     and new.ended_at is not null
-     and old.ended_at = new.ended_at
-     and (old.row_status = 'complete' or new.row_status = 'complete') then
-    new.row_status := 'complete';
-  end if;
   new.started_at := v_start;
   new.ended_at := v_end;
   new.pause_seconds := v_pause;
   new.paused_at := case when v_end is null then least(old.paused_at, new.paused_at) else null end;
   if v_end is null then
     new.entry_kind := 'open';
+  elsif new.entry_kind = 'open' then
+    new.entry_kind := case when new.pass_id is not null then 'pass_total' else 'task' end;
   end if;
 
   if old.client_updated_at is not null
@@ -988,7 +1038,8 @@ begin
     if v_end is not distinct from old.ended_at
        and v_start is not distinct from old.started_at
        and v_pause = coalesce(old.pause_seconds, 0)
-       and new.paused_at is not distinct from old.paused_at then
+       and new.paused_at is not distinct from old.paused_at
+       and new.row_status is not distinct from old.row_status then
       return null;
     end if;
     new.client_updated_at := old.client_updated_at;

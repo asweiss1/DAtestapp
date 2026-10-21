@@ -29,6 +29,8 @@ import {
   combineDateAndTime,
   crewMemberEntryId,
   foldCrewLabor,
+  sharedCrewJobId,
+  crewWorkKey,
   editCutoffDate,
   elapsedSeconds,
   formatDuration,
@@ -444,7 +446,30 @@ function beginJob(next) {
     return;
   }
   const now = new Date().toISOString();
-  const id = crypto.randomUUID();
+  const work = {
+    vineyard_id: state.vineyard.id,
+    work_date: vineyardToday(tz()),
+    block_id: next.blockId || null,
+    area_id: next.areaId || null,
+    task_id: next.passId ? null : (next.taskId || null),
+    pass_id: next.passId || null,
+    row_start: next.rowStart == null ? null : Number(next.rowStart),
+  };
+  const sameWork = (row) => !row.deleted_at && row.entry_kind !== "pass_slice" && row.source !== "manual" && crewWorkKey(row) === crewWorkKey(work);
+  const openSame = state.data.labor.find((row) => sameWork(row) && row.entry_kind === "open" && !row.ended_at);
+  const closedSelf = state.data.labor.find((row) => sameWork(row) && row.user_id === state.userId && row.ended_at);
+  let id;
+  let crewJobId;
+  if (openSame) {
+    crewJobId = openSame.crew_job_id || openSame.id;
+    id = openSame.user_id === state.userId ? openSame.id : (crewMemberEntryId(crewJobId, state.userId) || crypto.randomUUID());
+  } else if (closedSelf) {
+    id = crypto.randomUUID();
+    crewJobId = id;
+  } else {
+    crewJobId = sharedCrewJobId(work);
+    id = crewMemberEntryId(crewJobId, state.userId) || crypto.randomUUID();
+  }
   save("labor_entries", {
     id,
     vineyard_id: state.vineyard.id,
@@ -457,7 +482,7 @@ function beginJob(next) {
     task_id: next.passId ? null : (next.taskId || null),
     pass_id: next.passId || null,
     pass_group_id: null,
-    crew_job_id: id,
+    crew_job_id: crewJobId,
     entry_kind: "open",
     row_start: next.rowStart == null ? null : Number(next.rowStart),
     row_end: null,
