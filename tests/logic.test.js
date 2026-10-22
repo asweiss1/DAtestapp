@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildReports,
+  checkOffOne,
   closeOpenJob,
   crewMemberEntryId,
   mergeCrewEntry,
@@ -81,6 +82,45 @@ test("closing a pass splits that person's hours across the tasks", () => {
   assert.equal(total.pass_group_id, job.id);
   assert.equal(total.hours, 2);
   assert.equal(result.progress.length, 4);
+});
+
+test("switching tasks checks off only the current user", () => {
+  const holly = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
+  const nick = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2";
+  const job = "11111111-1111-4111-8111-111111111111";
+  const open = {
+    vineyard_id: "v",
+    season_year: 2026,
+    work_date: "2026-06-15",
+    block_id: "b",
+    task_id: "t",
+    entry_kind: "open",
+    row_start: 1,
+    started_at: "2026-06-15T15:00:00.000Z",
+    ended_at: null,
+    pause_seconds: 0,
+    paused_at: null,
+    source: "taps",
+    notes: "",
+    deleted_at: null,
+    crew_job_id: job,
+  };
+  const labor = [
+    { ...open, id: job, user_id: holly, logged_by: holly },
+    { ...open, id: "22222222-2222-4222-8222-222222222222", user_id: nick, logged_by: holly, started_at: "2026-06-15T16:00:00.000Z", source: "crew" },
+  ];
+  const next = checkOffOne(labor, holly, "2026-06-15T17:00:00.000Z");
+  const stopped = next.find((row) => row.user_id === holly && row.entry_kind !== "pass_slice");
+  const still = next.find((row) => row.user_id === nick);
+  assert.equal(stopped.entry_kind, "task");
+  assert.equal(stopped.close_reason, "leave");
+  assert.equal(stopped.ended_at, "2026-06-15T17:00:00.000Z");
+  assert.equal(stopped.hours, 2);
+  assert.equal(still.entry_kind, "open");
+  assert.equal(still.ended_at, null);
+  assert.equal(still.id, "22222222-2222-4222-8222-222222222222");
+  assert.equal(next.filter((row) => row.entry_kind === "open").length, 1);
+  assert.deepEqual(checkOffOne(labor, "nobody", "2026-06-15T17:00:00.000Z").map((row) => row.id), labor.map((row) => row.id));
 });
 
 test("each person on a shared job keeps their own join-to-leave hours", () => {

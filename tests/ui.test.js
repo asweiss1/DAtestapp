@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { APP_NAME } from "../js/config.js";
 import { BUNDLED_FACTS, pickFact } from "../js/facts.js";
@@ -219,6 +220,10 @@ test("a shared job lists who is on it and does not copy the same hours", () => {
   assert.match(home, /Add person/);
   assert.match(home, /Sam/);
   assert.match(home, /data-act="crew-off"/);
+  assert.match(home, />Check off</);
+  assert.doesNotMatch(home, />Off</);
+  assert.match(home, /data-act="switch-task"/);
+  assert.doesNotMatch(home, /data-href="#\/work">Start work/);
   assert.match(home, /data-act="crew-add"/);
   assert.doesNotMatch(home, /Who else worked/);
   const finish = renderApp(base({
@@ -419,12 +424,69 @@ test("the home screen shows no personal hours total", () => {
     },
   }));
   assert.match(html, /Did you know/);
-  assert.match(html, /Start work/);
+  assert.doesNotMatch(html, /data-href="#\/work">Start work/);
+  assert.match(html, /data-act="switch-task">Switch task/);
+  assert.match(html, />Check off</);
+  assert.doesNotMatch(html, />Off</);
   assert.match(html, /Clock is running/);
   assert.match(html, /Lunch out/);
   assert.doesNotMatch(html, /hours today/i);
   assert.doesNotMatch(html, /You have/);
   assert.doesNotMatch(html, /my hours/i);
+
+  const asking = renderApp(base({
+    route: "home",
+    modal: { type: "switch-task" },
+    data: {
+      ...base().data,
+      labor: [
+        { id: "open", entry_kind: "open", user_id: "u1", task_id: "t1", block_id: "b1", started_at: "2026-10-22T16:00:00.000Z", pause_seconds: 0, ended_at: null },
+        { id: "sam", entry_kind: "open", user_id: "u2", crew_job_id: "open", task_id: "t1", block_id: "b1", started_at: "2026-10-22T16:05:00.000Z", pause_seconds: 0, ended_at: null },
+      ],
+    },
+  }));
+  assert.match(asking, /Switch task\?/);
+  assert.match(asking, /Anyone else on that job keeps going/);
+  assert.match(asking, /data-act="confirm-switch-task"/);
+  assert.match(asking, /Stay on this job/);
+  assert.match(asking, /Leaf pulling/);
+});
+
+test("switch task uses the same check-off as leaving one person", () => {
+  const src = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
+  const block = src.slice(src.indexOf('act === "confirm-switch-task"'), src.indexOf('act === "crew-done"'));
+  assert.match(block, /stopMember\(mine\.id, \{ paintNow: false \}\)/);
+  assert.equal(block.includes('reason: "switch"'), false);
+  assert.equal(block.includes("beginJob"), false);
+  assert.match(block, /location\.hash = "#\/work"/);
+  const stop = src.slice(src.indexOf("function stopMember"), src.indexOf("function leaveCrew"));
+  assert.match(stop, /reason: "leave"/);
+  assert.match(stop, /markProgress: false/);
+});
+
+test("Start work shows when nobody on this phone has a running job", () => {
+  const idle = renderApp(base({ route: "home" }));
+  assert.match(idle, /data-href="#\/work">Start work/);
+  assert.doesNotMatch(idle, /data-act="switch-task"/);
+  assert.doesNotMatch(idle, />Check off</);
+
+  const others = renderApp(base({
+    route: "home",
+    data: {
+      ...base().data,
+      labor: [
+        { id: "sam", entry_kind: "open", user_id: "u2", task_id: "t1", block_id: "b1", started_at: "2026-10-22T16:00:00.000Z", pause_seconds: 0, ended_at: null },
+      ],
+      members: [
+        { id: "m1", user_id: "u1", role: "employee", active: true },
+        { id: "m2", user_id: "u2", role: "employee", active: true },
+      ],
+    },
+  }));
+  assert.match(others, /data-href="#\/work">Start work/);
+  assert.doesNotMatch(others, /data-act="switch-task"/);
+  assert.match(others, />Check off</);
+  assert.match(others, /data-act="crew-done"/);
 });
 
 test("the home card rotates one sourced fact", () => {

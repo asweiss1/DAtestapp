@@ -642,9 +642,9 @@ function addCrew(crewJobId, userId) {
   paint();
 }
 
-function leaveCrew(entryId) {
+function stopMember(entryId, { paintNow = true } = {}) {
   const job = state.data.labor.find((row) => row.id === entryId && row.entry_kind === "open" && !row.deleted_at && !row.ended_at);
-  if (!job) return;
+  if (!job) return null;
   const name = personLabel(job.user_id);
   finishJob(job, {
     at: new Date().toISOString(),
@@ -654,8 +654,16 @@ function leaveCrew(entryId) {
     markProgress: false,
     paintNow: false,
   });
-  state.notice = `${name} is off the job. Their time stopped.`;
-  paint();
+  const text = `${name} is off the job. Their time stopped.`;
+  if (paintNow) {
+    state.notice = text;
+    paint();
+  } else state.pendingNotice = text;
+  return job;
+}
+
+function leaveCrew(entryId) {
+  stopMember(entryId);
 }
 
 function onTaskRow(row) {
@@ -959,7 +967,24 @@ function onClick(event) {
   else if (act === "complete") complete(el.dataset.status || "");
   else if (act === "crew-add") addCrew(el.dataset.job, el.dataset.user);
   else if (act === "crew-off") leaveCrew(el.dataset.id);
-  else if (act === "crew-done") {
+  else if (act === "switch-task") {
+    if (!openJobFor(state.data.labor, state.userId)) return;
+    state.modal = { type: "switch-task" };
+    paint();
+  } else if (act === "confirm-switch-task") {
+    const mine = openJobFor(state.data.labor, state.userId);
+    state.modal = null;
+    if (mine) stopMember(mine.id, { paintNow: false });
+    else state.pendingNotice = "";
+    state.flow = { step: "place", crew: {} };
+    const here = location.hash || "#/";
+    if (here !== "#/work") location.hash = "#/work";
+    else {
+      state.notice = state.pendingNotice || "";
+      state.pendingNotice = "";
+      paint();
+    }
+  } else if (act === "crew-done") {
     state.flow = { ...(state.flow || {}), finishJobId: el.dataset.job, rowEnd: null };
     location.hash = "#/finish";
   } else if (act === "close-then-switch") {

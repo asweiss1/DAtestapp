@@ -33,7 +33,7 @@ export function tourSteps(role, { elliott = TOUR_ELLIOTT_NUDGE } = {}) {
     {
       id: "crew",
       title: "Add someone, or check them off",
-      body: "Tap a name under Add person. Their clock starts then. Tap Off when they leave. Done stops everyone still on the job.",
+      body: "Tap a name under Add person. Their clock starts then. Tap Check off when they leave. Done stops everyone still on the job.",
     },
     {
       id: "problem",

@@ -106,12 +106,13 @@ function crewCards(state) {
         <strong>${esc(title.task)}</strong>
         <p class="meta">${esc(title.place)}${job.row_start ? ` · started row ${job.row_start}` : ""}</p>
         ${mine ? `<p class="timer" data-timer="${mine.id}">${formatDuration(elapsedSeconds(mine))}</p>` : ""}
-        ${members.slice().sort((a, b) => String(a.started_at).localeCompare(String(b.started_at))).map((row) => `<div class="crew-line"><span>${esc(personName(state, row.user_id))}${row.user_id === state.userId ? " · you" : ""}${row.paused_at ? " · lunch" : ""}</span><button class="ghost" type="button" data-act="crew-off" data-id="${row.id}">Off</button></div>`).join("")}
+        ${members.slice().sort((a, b) => String(a.started_at).localeCompare(String(b.started_at))).map((row) => `<div class="crew-line"><span>${esc(personName(state, row.user_id))}${row.user_id === state.userId ? " · you" : ""}${row.paused_at ? " · lunch" : ""}</span><button class="ghost" type="button" data-act="crew-off" data-id="${row.id}">Check off</button></div>`).join("")}
         ${others.length ? `<p class="meta">Add person</p><div class="pair">${others.map((m) => `<button class="ghost" type="button" data-act="crew-add" data-job="${crewJobId}" data-user="${m.user_id}">${esc(personName(state, m.user_id))}</button>`).join("")}</div>` : ""}
-        <div class="pair">
-          ${mine ? `<button class="ghost" type="button" data-act="lunch">${lunch}</button>` : `<span></span>`}
-          <button class="big" type="button" data-act="crew-done" data-job="${crewJobId}">Done</button>
-        </div>
+        ${mine ? `<div class="pair">
+          <button class="ghost" type="button" data-act="lunch">${lunch}</button>
+          <button class="ghost quiet" type="button" data-act="switch-task">Switch task</button>
+        </div>` : ""}
+        <button class="big" type="button" data-act="crew-done" data-job="${crewJobId}">Done</button>
       </section>`;
     }).join("")}
   </div>`;
@@ -178,6 +179,16 @@ function rowGrid(state, block, taskIds, { startRow = null, endRow = null, act = 
 function modal(state) {
   const m = state.modal;
   if (!m) return "";
+  if (m.type === "switch-task") {
+    const open = openJobFor(state.data.labor, state.userId);
+    const title = open ? jobTitle(state, open) : { task: "this job", place: "" };
+    return `<div class="modal-back"><div class="modal">
+      <h2>Switch task?</h2>
+      <p>Your clock stops on ${esc(title.task)}${title.place ? ` · ${esc(title.place)}` : ""}. Anyone else on that job keeps going.</p>
+      <button class="big" type="button" data-act="confirm-switch-task">Switch task</button>
+      <button class="ghost" type="button" data-act="dismiss">Stay on this job</button>
+    </div></div>`;
+  }
   if (m.type === "switch") {
     const open = openJobFor(state.data.labor, state.userId);
     const title = jobTitle(state, open);
@@ -216,7 +227,7 @@ function home(state) {
   return shell(state, `
     <p class="note">${esc(banner)}</p>
     ${factCard(state)}
-    <button class="big" type="button" data-act="go" data-href="#/work">Start work</button>
+    ${openJobFor(state.data.labor, state.userId) ? "" : `<button class="big" type="button" data-act="go" data-href="#/work">Start work</button>`}
     <button class="ghost" type="button" data-act="go" data-href="#/export">Export</button>
     ${blocks.map((b) => `<button class="tile" type="button" data-act="go" data-href="#/block/${b.id}">
       <span><strong>${esc(b.name)}</strong><p class="meta">${b.row_count} rows${b.variety ? ` · ${esc(b.variety)}` : ""}</p></span>

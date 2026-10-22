@@ -531,6 +531,21 @@ export function openJobFor(labor, userId) {
   ) || null;
 }
 
+// Same stop as checking one person off: their open row closes, everyone else stays open.
+export function checkOffOne(labor, userId, at) {
+  const mine = openJobFor(labor, userId);
+  if (!mine) return (labor || []).slice();
+  const closed = closeOpenJob({
+    job: mine,
+    at,
+    completion: null,
+    rowEnd: null,
+    reason: "leave",
+    markProgress: false,
+  });
+  return (labor || []).filter((row) => row.id !== mine.id).concat(closed.labor);
+}
+
 export function rowStatus(rows, season, blockId, taskId, rowNumber) {
   const hit = (rows || []).find(
     (r) =>

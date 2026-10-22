@@ -83,6 +83,7 @@ body { min-height: 100vh; }
   min-height: 3.4rem; border-radius: 12px; padding: .8rem 1rem; font-weight: 750; width: 100%;
 }
 .big, .primary { background: var(--accent); color: var(--accent-ink); border: 2px solid var(--accent); }
+.ghost.quiet { min-height: 2.6rem; padding: .45rem .75rem; font-size: .95rem; }
 .ghost { background: var(--ghost); color: var(--ghost-ink); border: 2px solid var(--ghost-line); }
 .danger { background: var(--danger); color: var(--danger-ink); border: 2px solid var(--danger-ink); }
 .tile {

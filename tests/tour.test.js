@@ -23,7 +23,8 @@ test("the field tour is short and the Elliott line is one flag", () => {
   assert.match(text, /Partial or Complete/);
   assert.match(text, /Lunch out/);
   assert.match(text, /Add person/);
-  assert.match(text, /Off/);
+  assert.match(text, /Check off/);
+  assert.equal(text.includes("Tap Off"), false);
 });
 
 test("managers and the developer get only their extra steps", () => {
