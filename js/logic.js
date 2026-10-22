@@ -586,15 +586,6 @@ export function sumPassHours(labor, season, passId, blockId = null) {
   return round3(hours);
 }
 
-export function personHoursOnDay(labor, userId, workDate) {
-  let hours = 0;
-  for (const row of labor || []) {
-    if (row.deleted_at || row.user_id !== userId || row.work_date !== workDate) continue;
-    if (row.entry_kind === "task" || row.entry_kind === "pass_total") hours += Number(row.hours) || 0;
-  }
-  return round3(hours);
-}
-
 function norm(s) {
   return String(s || "").trim().toLowerCase();
 }

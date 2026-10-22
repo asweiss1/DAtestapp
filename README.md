@@ -26,7 +26,7 @@ A clock left running stops itself at the end of the day. That time is 2:25 in th
 
 If you forgot to tap, use **More → Add forgotten hours**.
 
-On a block, each task card and the task page show one total: every person’s hours on that task in that block, from every date. That line does not say today, and it does not show pay. The home screen still shows your own hours for today.
+On a block, each task card and the task page show one total: every person’s hours on that task in that block, from every date. That line does not say today, and it does not show pay. The home screen does not show a personal hours total.
 
 Water is logged in hours. Each plant has two half-gallon emitters, so one hour is about one gallon per plant.
 

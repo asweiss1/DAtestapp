@@ -13,7 +13,6 @@ import {
   formatHours,
   openCrewJobs,
   openJobFor,
-  personHoursOnDay,
   rowStatus,
   sumPassHours,
   sumTaskHours,
@@ -209,8 +208,6 @@ function modal(state) {
 
 function home(state) {
   const blocks = byName(alive(state.data.blocks));
-  const today = vineyardToday(state.vineyard?.timezone || "America/Phoenix");
-  const mine = personHoursOnDay(state.data.labor, state.userId, today);
   const seasons = (state.data.seasons || []).map((s) => s.season_year);
   const archived = seasons.filter((y) => y < state.year);
   const banner = archived.length
@@ -218,7 +215,6 @@ function home(state) {
     : `${state.year} season. On January 1, row colors, sprays, water, weeds, and samples start fresh. Blocks stay.`;
   return shell(state, `
     <p class="note">${esc(banner)}</p>
-    <p class="meta">You have ${esc(formatHours(mine) || "0")} hours today.</p>
     ${factCard(state)}
     <button class="big" type="button" data-act="go" data-href="#/work">Start work</button>
     <button class="ghost" type="button" data-act="go" data-href="#/export">Export</button>

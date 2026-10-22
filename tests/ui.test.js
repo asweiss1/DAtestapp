@@ -407,6 +407,26 @@ test("a block screen shows one sourced line for that variety", () => {
   assert.match(working, /Raspberry-perfumed/);
 });
 
+test("the home screen shows no personal hours total", () => {
+  const html = renderApp(base({
+    route: "home",
+    data: {
+      ...base().data,
+      labor: [
+        { id: "done", entry_kind: "task", user_id: "u1", work_date: "2026-10-22", hours: 4, task_id: "t1", block_id: "b1", season_year: 2026 },
+        { id: "open", entry_kind: "open", user_id: "u1", task_id: "t1", block_id: "b1", started_at: "2026-10-22T16:00:00.000Z", pause_seconds: 0, ended_at: null },
+      ],
+    },
+  }));
+  assert.match(html, /Did you know/);
+  assert.match(html, /Start work/);
+  assert.match(html, /Clock is running/);
+  assert.match(html, /Lunch out/);
+  assert.doesNotMatch(html, /hours today/i);
+  assert.doesNotMatch(html, /You have/);
+  assert.doesNotMatch(html, /my hours/i);
+});
+
 test("the home card rotates one sourced fact", () => {
   const html = renderApp(base({ factVisit: "home-fact" }));
   const fact = pickFact(BUNDLED_FACTS, "home-fact");
